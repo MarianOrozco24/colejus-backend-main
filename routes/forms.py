@@ -32,6 +32,7 @@ def derecho_fijo():
     data = request.json
     try:
         try:
+
             # Create and validate new DerechoFijo entry
             new_derecho_fijo = DerechoFijoModel.from_json(data)
             db.session.add(new_derecho_fijo)
@@ -704,7 +705,6 @@ def scroll_randomly(page):
 def calcular_liquidacion():
     data = request.json
     logging.info(f"📨 Datos recibidos: {data}")
-
     concepto = data.get("concepto", "")
     tasa = data.get("tasa", "")
     capital = data.get("capital", 0)

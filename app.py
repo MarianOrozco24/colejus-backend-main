@@ -15,12 +15,7 @@ load_dotenv(override=True)
 init_mp()
 init_db(app)
 init_jwt(app)
-## -----------------
-# Descomentar para produccion. El motivo de este comentario es para poder realizar testeos con ngrok en lo que 
-# respecta a los modulos de pago con MP
-
-# init_cors(app) 
-## -----------------
+init_cors(app) # En caso de entrar en modo desarrollador comentar y volver al comando basico de cors
 
 
 # Crea las tablas en la base de datos
@@ -31,5 +26,5 @@ with app.app_context():
 init_app(app)
 
 if __name__ == '__main__':
-    app.run(debug=True, host= "0.0.0.0", port=5000)  # Modificar cuando vayamos a mandar a produccion
+    app.run(debug=True)  # Modificar cuando vayamos a mandar a produccion
     
