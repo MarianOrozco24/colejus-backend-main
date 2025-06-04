@@ -26,5 +26,5 @@ with app.app_context():
 init_app(app)
 
 if __name__ == '__main__':
-    app.run(debug=True)  # Modificar cuando vayamos a mandar a produccion
+    app.run(debug=True)  # Para desarrollo modificar a host=0.0.0.0 y port=5000
     
