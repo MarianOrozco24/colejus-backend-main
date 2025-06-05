@@ -29,8 +29,12 @@ forms_bp = Blueprint('forms_bp', __name__)
 @token_required
 @access_required('')
 def derecho_fijo():
-    data = request.json
+    print("🔍 Headers:", request.headers)
+    print("🔍 Raw body:", request.data)
+    # data = request.json
     try:
+        data = request.get_json(force=True)
+        print("🔍 Parsed JSON data:", data)
         try:
 
             # Create and validate new DerechoFijo entry
