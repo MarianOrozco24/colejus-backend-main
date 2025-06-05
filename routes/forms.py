@@ -25,9 +25,9 @@ forms_bp = Blueprint('forms_bp', __name__)
 
 
 @forms_bp.route('/forms/derecho_fijo', methods=['POST'])
-# @jwt_required()
-# @token_required
-# @access_required('')
+@jwt_required()
+@token_required
+@access_required('')
 def derecho_fijo():
     data = request.json
     try:
@@ -67,6 +67,7 @@ def derecho_fijo():
                 "pending": f"{frontend_url}/payment/pending"
             },
             "external_reference": str(new_derecho_fijo.uuid),
+            # "external_reference": "test-user-001", # 🚨 ACA: Cambiar por el UUID del derecho fijo una vez que mandemos a produccion
             "notification_url": f"{backend_url}/api/forms/webhook"
         }
 
@@ -78,9 +79,12 @@ def derecho_fijo():
 
         # Recién acá creás la preferencia
         preference_response = sdk.preference().create(preference_data)
+        print("\n\nPreference creada:", preference_response, "\n\n")  # Debug log
 
         # Use init_point instead of point_of_interaction
-        qr_code_url = preference_response["response"]["init_point"]
+        qr_code_url = preference_response["response"]["init_point"] # Cambiar para produccion
+        # qr_code_url = preference_response["response"]["sandbox_init_point"]
+    
 
         # Generate the QR code image from the URL
         qr = qrcode.make(qr_code_url)
@@ -183,6 +187,7 @@ def check_payment_status(preference_id):
         }), 200
         
     except Exception as e:
+        traceback.print_exc()  # Print the full traceback for debugging
         print("Error checking payment status:", str(e))
         return jsonify({"error": str(e)}), 500
     
