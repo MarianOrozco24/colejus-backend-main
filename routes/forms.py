@@ -25,16 +25,14 @@ forms_bp = Blueprint('forms_bp', __name__)
 
 
 @forms_bp.route('/forms/derecho_fijo', methods=['POST'])
-@jwt_required()
-@token_required
-@access_required('')
+# @jwt_required()
+# @token_required
+# @access_required('')
 def derecho_fijo():
     print("🔍 Headers:", request.headers)
     print("🔍 Raw body:", request.data)
-    # data = request.json
+    data = request.json
     try:
-        data = request.get_json(force=True)
-        print("🔍 Parsed JSON data:", data)
         try:
 
             # Create and validate new DerechoFijo entry
@@ -206,11 +204,11 @@ def download_receipt():
 
         # Opción 1: buscar por recibo
         if uuid_recibo:
-            receipt = ReceiptModel.query.get(uuid_recibo)
+            receipt = ReceiptModel.query.filter_by(uuid=uuid_recibo).first()
             if not receipt:
                 return jsonify({"error": "Recibo no encontrado"}), 404
-
-            derecho_fijo = DerechoFijoModel.query.get(receipt.uuid_derecho_fijo)
+            
+            derecho_fijo = DerechoFijoModel.query.filter_by(uuid=receipt.uuid_derecho_fijo).first()
             if not derecho_fijo:
                 return jsonify({"error": "Formulario vinculado no encontrado"}), 404
 
