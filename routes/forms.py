@@ -204,7 +204,8 @@ def download_receipt():
     try:
         uuid_recibo = request.args.get("receipt_uuid")
         uuid_formulario = request.args.get("derecho_fijo_uuid")
-
+        print("identificador formulario",uuid_formulario)
+        print("identificador recibo",uuid_recibo)
         receipt = None
         derecho_fijo = None
 
@@ -213,10 +214,11 @@ def download_receipt():
             receipt = ReceiptModel.query.filter_by(uuid=uuid_recibo).first()
             if not receipt:
                 return jsonify({"error": "Recibo no encontrado"}), 404
-            
+            print("uuid derecho_fijo", receipt.uuid_derecho_fijo)
             derecho_fijo = DerechoFijoModel.query.filter_by(uuid=receipt.uuid_derecho_fijo).first()
             if not derecho_fijo:
                 return jsonify({"error": "Formulario vinculado no encontrado"}), 404
+            
 
         # Opción 2: buscar por formulario
         elif uuid_formulario:

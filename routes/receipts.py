@@ -12,7 +12,8 @@ receipts_bp = Blueprint('receipts_bp', __name__)
 @token_required
 def get_all_receipts():
     try:
-        receipts = ReceiptModel.query.order_by(ReceiptModel.fecha_pago.desc()).all()
+        receipts = ReceiptModel.query.filter_by(status='Pagado').order_by(ReceiptModel.fecha_pago.desc()).all()
+        # receipts = ReceiptModel.query.order_by(ReceiptModel.fecha_pago.desc()).all() ## Original || trae todos los recibos in discriminar si estan pagados o no
 
         results = []
         for r in receipts:
