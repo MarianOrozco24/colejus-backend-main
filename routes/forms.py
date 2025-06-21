@@ -142,10 +142,12 @@ def handle_webhook():
                 print(f"Estado del pago: {status}, referencia externa: {external_reference}")
 
                 if status == 'approved' and external_reference:
-                    derecho_fijo = DerechoFijoModel.query.get(external_reference)
+                    derecho_fijo = DerechoFijoModel.query.filter_by(uuid=external_reference).first()
                     if derecho_fijo:
                         save_receipt_to_db(db.session, derecho_fijo, payment_id)
                         print("✅ Recibo guardado correctamente.")
+                    else:
+                        print("❌ No se encontro el derecho fijo de uuid", external_reference)
             else:
                 print("❌ Error al consultar el pago con Mercado Pago")
 
@@ -166,7 +168,11 @@ def check_payment_status(preference_id):
         
         # Get preferences to check payment
         preference = sdk.preference().get(preference_id)
-        print("Preference found:", preference)  # Debug log
+        # print("Preference found:", preference)  # Debug log
+        if preference:
+            print("✅ Preference found")
+        else:
+            print("❌ Preference not found")
         
         # Search for payments with this external reference
         if preference['response'].get('external_reference'):
@@ -198,7 +204,8 @@ def download_receipt():
     try:
         uuid_recibo = request.args.get("receipt_uuid")
         uuid_formulario = request.args.get("derecho_fijo_uuid")
-
+        print("identificador formulario",uuid_formulario)
+        print("identificador recibo",uuid_recibo)
         receipt = None
         derecho_fijo = None
 
@@ -207,10 +214,11 @@ def download_receipt():
             receipt = ReceiptModel.query.filter_by(uuid=uuid_recibo).first()
             if not receipt:
                 return jsonify({"error": "Recibo no encontrado"}), 404
-            
+            print("uuid derecho_fijo", receipt.uuid_derecho_fijo)
             derecho_fijo = DerechoFijoModel.query.filter_by(uuid=receipt.uuid_derecho_fijo).first()
             if not derecho_fijo:
                 return jsonify({"error": "Formulario vinculado no encontrado"}), 404
+            
 
         # Opción 2: buscar por formulario
         elif uuid_formulario:

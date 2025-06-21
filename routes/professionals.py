@@ -61,7 +61,8 @@ def get_all_professionals():
             query = query.filter(
                 (ProfessionalModel.name.ilike(search_term)) |
                 (ProfessionalModel.email.ilike(search_term)) |
-                (ProfessionalModel.title.ilike(search_term))
+                (ProfessionalModel.title.ilike(search_term)) | 
+                (ProfessionalModel.tuition.ilike(search_term)) 
             )
             
         pagination = query.order_by(ProfessionalModel.created_at.desc()).paginate(
@@ -115,7 +116,8 @@ def get_public_professionals():
             query = query.filter(
                 (ProfessionalModel.name.ilike(search_term)) |
                 (ProfessionalModel.email.ilike(search_term)) |
-                (ProfessionalModel.title.ilike(search_term))
+                (ProfessionalModel.title.ilike(search_term)) |
+                (ProfessionalModel.tuition.ilike(search_term))
             )
             
         pagination = query.order_by(ProfessionalModel.name.asc()).paginate(
