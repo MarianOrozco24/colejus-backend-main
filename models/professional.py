@@ -53,5 +53,5 @@ class ProfessionalModel(db.Model):
             'location': self.location,
             'phone': self.phone,
             'address': self.address,
-            'tuition': self.tuition.replace(".", "") or 'Sin matricula',
+            'tuition': self.tuition.replace(".", "") or 'Sin matricula', # Modificacion para eliminar el punto en caso de que haya de la matricula de los abogados
         }
