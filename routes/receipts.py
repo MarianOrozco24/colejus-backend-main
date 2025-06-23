@@ -12,8 +12,18 @@ receipts_bp = Blueprint('receipts_bp', __name__)
 @token_required
 def get_all_receipts():
     try:
+        search = request.args.get('search', '') # Obtenemos los datos del filtro de busqueda
+
         receipts = ReceiptModel.query.filter_by(status='Pagado').order_by(ReceiptModel.fecha_pago.desc()).all()
         # receipts = ReceiptModel.query.order_by(ReceiptModel.fecha_pago.desc()).all() ## Original || trae todos los recibos in discriminar si estan pagados o no
+
+        # Condicional de busqueda 
+        if search: # En caso de que haya informacion en el filtro realizamos un filtro distinto
+            search_term = f"%{search}%"
+            receipts = ReceiptModel.query.filter(
+                ReceiptModel.caratula.ilike(search_term) |
+                ReceiptModel.total_depositado.ilike(search_term) |
+                ReceiptModel.fecha_pago.ilike(search_term)) # filtramos los datos por el filtro que indique el usuario
 
         results = []
         for r in receipts:
