@@ -19,9 +19,9 @@ def create_professional():
         data = request.json
         print("Received Data:", json.dumps(data, indent=4))  # Depuración
 
-        required_fields = ['name', 'title', 'tuition', 'email', 'location']
+        required_fields = ['name', 'title', 'tuition', 'email', 'location', 'procurador_professions']
         if not all(field in data for field in required_fields):
-            return {'error': 'Name, title, tuition, email, location are required.'}, 400
+            return {'error': 'Name, title, tuition, email, location and procurador_professions are required.'}, 400
         
         # Asegurar que 'address' y 'phone' están en el JSON recibido
         if 'address' not in data:
@@ -55,7 +55,7 @@ def get_all_professionals():
         search = request.args.get('search', '')
         
         query = ProfessionalModel.query.filter_by(deleted_at=None)
-        
+
         if search:
             search_term = f"%{search}%"
             query = query.filter(

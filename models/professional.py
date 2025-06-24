@@ -8,6 +8,7 @@ class ProfessionalModel(db.Model):
     uuid = db.Column(db.String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
     name = db.Column(db.String(64), nullable=False)
     title = db.Column(db.String(64), nullable=False) 
+    procurador_professions = db.Column(db.String(100), nullable=True)
     email = db.Column(db.String(128), nullable=False)
     address = db.Column(db.String(128), nullable=True)
     tuition = db.Column(db.String(10))
@@ -30,6 +31,7 @@ class ProfessionalModel(db.Model):
             address=json_data.get('address'),  
             phone=json_data.get('phone'),
             location=json_data.get('location'),
+            procurador_professions = json_data.get('procurador_professions')
         )
 
     def to_json(self):
@@ -44,6 +46,7 @@ class ProfessionalModel(db.Model):
             'location': self.location,
             'created_at': self.created_at,
             'updated_at': self.updated_at,
+            'procurador_professions' : self.procurador_professions,
         }
         
     def to_public_json(self):
@@ -54,4 +57,6 @@ class ProfessionalModel(db.Model):
             'phone': self.phone,
             'address': self.address,
             'tuition': self.tuition.replace(".", "") or 'Sin matricula', # Modificacion para eliminar el punto en caso de que haya de la matricula de los abogados
+            'procurador_professions' : self.procurador_professions,
         }
+
