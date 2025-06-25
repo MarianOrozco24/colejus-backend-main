@@ -55,6 +55,7 @@ def get_all_edicts():
     try:
         page = request.args.get('page', 1, type=int)
         per_page = request.args.get('per_page', 10, type=int)
+        search = request.args.get('search', '') # Obtenemos los datos del filtro de busqueda
         include_scheduled = request.args.get('include_scheduled', 'false').lower() == 'true'
 
         search_term = request.args.get('search', '', type=str).strip()
@@ -62,6 +63,12 @@ def get_all_edicts():
         final_date = request.args.get('final_date', type=str)
 
         query = EdictModel.query.filter(EdictModel.deleted_at == None)
+
+        if search: # Condicion de busqueda
+            search_term = f"%{search}%"
+            query = EdictModel.query.filter(
+                EdictModel.title.ilike(search_term)
+            )
 
         # ✅ Filtrar edictos programados si no se incluye el flag
         if not include_scheduled:
