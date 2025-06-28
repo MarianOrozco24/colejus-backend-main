@@ -421,7 +421,7 @@ def save_receipt_to_db(db_session, derecho_fijo, payment_id, status="Pendiente")
         db_session.rollback()
 # FUNCION Q GENERA EL PDF DE LIQ
 def generate_liquidacion_pdf( capital: float, fecha_origen: datetime, fecha_liquidacion: datetime, 
-                          detalles: list, tasa_total: float, monto_final: float) -> BytesIO:
+                          detalles: list, tasa_total: float, monto_final: float, tasa_label : str) -> BytesIO:
    # Create a buffer to receive PDF data
    buffer = BytesIO()
    
@@ -488,7 +488,7 @@ def generate_liquidacion_pdf( capital: float, fecha_origen: datetime, fecha_liqu
    
    # Add basic information
    elements.append(Paragraph(f"Capital (pesos) {capital}$", normal_style))
-   elements.append(Paragraph("Tasa utilizada: Tasa Banco Nación Activa", normal_style))
+   elements.append(Paragraph(f"Tasa utilizada: {tasa_label}", normal_style))
    elements.append(Paragraph(f"Fecha de origen: {fecha_origen.strftime('%d/%m/%Y')}", normal_style))
    elements.append(Paragraph(f"Fecha de liquidación: {fecha_liquidacion.strftime('%d/%m/%Y')}", normal_style))
    elements.append(Spacer(1, 12))
@@ -588,7 +588,9 @@ def generar_liquidaciones():
         fecha_origen = datetime.strptime(data.get('fecha_inicio'), '%d/%m/%Y')
         fecha_liquidacion = datetime.strptime(data.get('fecha_final'), '%d/%m/%Y')
         tipo_calculo = data.get('tipo_calculo')
-        
+        tasa_label = data.get('tasa_label', "")
+
+        print("Tipo de calculo: ",tipo_calculo)
         if not all([capital_inicial, fecha_origen, fecha_liquidacion, tipo_calculo]):
             return jsonify({
                 "error": "Faltan parámetros requeridos"
@@ -623,7 +625,8 @@ def generar_liquidaciones():
             fecha_liquidacion=fecha_liquidacion,
             detalles=detalles,
             tasa_total=total_rate,
-            monto_final=monto_final
+            monto_final=monto_final,
+            tasa_label=tasa_label
         )
         
         filename = f"Liquidacion-{fecha_origen.strftime('%d-%m-%Y')}-{fecha_liquidacion.strftime('%d-%m-%Y')}.pdf"
@@ -726,6 +729,7 @@ def calcular_liquidacion():
     fecha_origen_str = data.get("fecha_origen", "")
     fecha_liquidacion_str = data.get("fecha_liquidacion", "")
     imprimir = data.get("imprimir", False)
+    tasa_label = data.get("tasa_label", "") # Preparamos el endpoint para recibir la informacion de tasa_label
     descargar_pdf = data.get("descargar_pdf", False)
 
     try:
@@ -870,7 +874,8 @@ def calcular_liquidacion():
                 fecha_liquidacion=fecha_liquidacion,
                 detalles=detalles,
                 tasa_total=float(tasa_total),
-                monto_final=float(monto_final)
+                monto_final=float(monto_final),
+                tasa_label = tasa_label ## agrgamos el item que manda la informacion a la funcion generar recibo
             )
 
             pdf_size = pdf_buffer.getbuffer().nbytes
