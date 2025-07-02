@@ -23,6 +23,15 @@ def create_professional():
         if not all(field in data for field in required_fields):
             return {'error': 'Name, title, tuition, email, location are required.'}, 400
         
+        if data['title'] == 'Procurador' and 'procurador_professions' not in data:
+            return {"error" : "El campo procurador_professions es requerido para procuradores"}, 400        
+
+
+        if "procurador_professions" in data:
+            data["procurador_professions"] = json.dumps(data["procurador_professions"])
+
+
+        
         # Asegurar que 'address' y 'phone' están en el JSON recibido
         if 'address' not in data:
             return {'error': 'Address is required.'}, 400
@@ -41,6 +50,8 @@ def create_professional():
         
     except Exception as e:
         db.session.rollback()
+        print(e)
+
         return jsonify({'error': str(e)}), 500
 
 
