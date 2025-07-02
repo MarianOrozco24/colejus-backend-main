@@ -11,6 +11,7 @@ class ProfessionalModel(db.Model):
     email = db.Column(db.String(128), nullable=False)
     address = db.Column(db.String(128), nullable=True)
     tuition = db.Column(db.String(10))
+    procurador_professions= db.Column(db.String(100), nullable=True)
     phone = db.Column(db.String(36), nullable=True)
     location = db.Column(db.String(36), nullable=False)
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
@@ -27,6 +28,7 @@ class ProfessionalModel(db.Model):
             title=json_data.get('title'),  
             email=json_data.get('email'),
             tuition=json_data.get('tuition'),
+            procurador_professions = json_data.get('procurador_professions'),
             address=json_data.get('address'),  
             phone=json_data.get('phone'),
             location=json_data.get('location'),
@@ -40,6 +42,7 @@ class ProfessionalModel(db.Model):
             'email': self.email,
             'address': self.address, 
             'tuition': self.tuition,
+            'procurador_professions' : self.procurador_professions,
             'phone': self.phone,
             'location': self.location,
             'created_at': self.created_at,
@@ -47,10 +50,19 @@ class ProfessionalModel(db.Model):
         }
         
     def to_public_json(self):
+        if self.title == 'Abogado': # Condicionamos para que cuando el titulo sea procurador, entonces nos retorne la profesion del mismo
+            return {
+                'name': self.name,
+                'title': self.title, 
+                'location': self.location,
+                'phone': self.phone,
+                'address': self.address, 
+            }
         return {
-            'name': self.name,
-            'title': self.title, 
-            'location': self.location,
-            'phone': self.phone,
-            'address': self.address, 
+             'name': self.name,
+             'title': self.title, 
+             'location': self.location,
+             'procurador_professions' : self.procurador_professions,
+             'phone': self.phone,
+             'address': self.address, 
         }
