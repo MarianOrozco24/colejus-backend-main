@@ -4,6 +4,8 @@ from config.config import db
 from models import ReceiptModel
 from utils.decorators import token_required, access_required
 from flask_jwt_extended import jwt_required
+from sqlalchemy import desc
+
 
 receipts_bp = Blueprint('receipts_bp', __name__)
 
@@ -11,8 +13,11 @@ receipts_bp = Blueprint('receipts_bp', __name__)
 @jwt_required()
 @token_required
 def get_all_receipts():
-    try:
-        receipts = ReceiptModel.query.order_by(ReceiptModel.fecha_pago.desc()).all()
+    try:    
+        receipts = ReceiptModel.query \
+        .filter(ReceiptModel.status == 'Pagado') \
+        .order_by(desc(ReceiptModel.fecha_pago)) \
+        .all()
 
         results = []
         for r in receipts:

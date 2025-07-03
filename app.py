@@ -11,7 +11,7 @@ app = Flask(__name__)
 # Cargar variables de entorno
 load_dotenv(override=True)
 
-# 
+
 init_mp()
 init_db(app)
 init_jwt(app)
