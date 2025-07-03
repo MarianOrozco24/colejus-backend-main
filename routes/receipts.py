@@ -14,6 +14,7 @@ receipts_bp = Blueprint('receipts_bp', __name__)
 @token_required
 def get_all_receipts():
     try:    
+        # Filtramos solos los que tengan id de pagos unicos
         receipts = ReceiptModel.query \
         .filter(ReceiptModel.status == 'Pagado') \
         .order_by(desc(ReceiptModel.fecha_pago)) \
