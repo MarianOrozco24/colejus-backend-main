@@ -17,6 +17,7 @@ def get_all_receipts():
         receipts = ReceiptModel.query \
         .filter(ReceiptModel.status == 'Pagado') \
         .order_by(desc(ReceiptModel.fecha_pago)) \
+        .distinct(ReceiptModel.payment_id) \
         .all()
 
         results = []
