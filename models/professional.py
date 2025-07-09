@@ -56,6 +56,7 @@ class ProfessionalModel(db.Model):
                 'title': self.title, 
                 'tuition' : self.tuition,
                 'location': self.location,
+                'tuition' : self.tuition,
                 'phone': self.phone,
                 'address': self.address, 
             }
