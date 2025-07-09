@@ -54,6 +54,7 @@ class ProfessionalModel(db.Model):
             return {
                 'name': self.name,
                 'title': self.title, 
+                'tuition' : self.tuition,
                 'location': self.location,
                 'phone': self.phone,
                 'address': self.address, 
@@ -62,6 +63,7 @@ class ProfessionalModel(db.Model):
              'name': self.name,
              'title': self.title, 
              'location': self.location,
+             'tuition' : self.tuition,
              'procurador_professions' : self.procurador_professions,
              'phone': self.phone,
              'address': self.address, 
