@@ -979,6 +979,21 @@ def update_derecho_fijo():
         print("❌ Error al actualizar derecho fijo:", e)
         return jsonify({"error": str(e)}), 500
 
+@forms_bp.route("/forms/get_price_derecho_fijo", methods=['GET'])
+def get_price_derecho_fijo():
+    now = datetime.now()
+    anio = now.year
+    mes = now.month
 
+    price = PriceDerechoFijo.query.filter(
+        db.extract('year', PriceDerechoFijo.fecha) == anio,
+        db.extract('month', PriceDerechoFijo.fecha) == mes
+    ).all()
 
+    if not price:
+        return jsonify({"error": "La consulta a la base de datos vino vacía"}), 404
+
+    data = [item.to_json() for item in price]
+
+    return jsonify({"data": data}), 200
 
