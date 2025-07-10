@@ -13,6 +13,7 @@ from .professional import ProfessionalModel
 from .rate import RateModel
 from .receipts import ReceiptModel
 from .integrantes import IntegranteModel
+from .price_df import PriceDerechoFijo
 
 __all__ = [
     'UserModel',
@@ -29,5 +30,6 @@ __all__ = [
     'ProfessionalModel',
     'RateModel',
     "ReceiptModel",
-    "IntegranteModel"
+    "IntegranteModel",
+    "PriceDerechoFijo"
 ]

@@ -2,7 +2,7 @@ from datetime import datetime, timedelta
 from flask import Blueprint, request, jsonify, send_file
 from sqlalchemy import and_, or_
 from config.config import db
-from models import DerechoFijoModel, RateModel, ReceiptModel
+from models import DerechoFijoModel, RateModel, ReceiptModel, PriceDerechoFijo
 from utils.decorators import token_required, access_required
 from flask_jwt_extended import jwt_required
 from utils.errors import ValidationError
@@ -888,3 +888,54 @@ def calcular_liquidacion():
         traceback.print_exc()
         logging.error(f"💥 Error completo: {str(e)}")
         return jsonify({"ok": False, "error": str(e)})
+    
+
+
+
+@forms_bp.route('/forms/check_derecho_fijo', methods=['POST'])
+def check_derecho_fijo():
+    try:
+        today = datetime.utcnow()
+        primer_dia_mes = today.replace(day=9)
+        max_dia_habil = primer_dia_mes + timedelta(days=5)
+        print("Primer dia del mes: ", primer_dia_mes)
+
+        # Validamos si estamos dentro de los primeros días del mes
+        if today > max_dia_habil:
+            return jsonify({"message": "No es necesario actualizar. Ya pasó el período inicial del mes."}), 200
+        print(PriceDerechoFijo.fecha)
+        # Revisamos si ya hay registro de este mes
+        existe = PriceDerechoFijo.query.filter(
+            db.extract('year', PriceDerechoFijo.fecha) == today.year,
+            db.extract('month', PriceDerechoFijo.fecha) == today.month
+        ).first()
+
+        if existe:
+            return jsonify({"message": "Ya existe valor cargado para este mes."}), 200
+
+        # Buscamos el último valor anterior
+        ultimo = PriceDerechoFijo.query \
+            .filter(PriceDerechoFijo.fecha < primer_dia_mes) \
+            .order_by(PriceDerechoFijo.fecha.desc()) \
+            .first()
+
+        if not ultimo:
+            return jsonify({"error": "No hay valores anteriores para copiar."}), 400
+
+        # Clonamos valor para el mes actual
+        nuevo_valor = PriceDerechoFijo(
+            fecha=primer_dia_mes,
+            value=ultimo.value
+        )
+        db.session.add(nuevo_valor)
+        db.session.commit()
+
+        return jsonify({"message": "Valor copiado automáticamente", "nuevo": nuevo_valor.to_json()}), 201
+
+    except Exception as e:
+        db.session.rollback()
+        print("❌ Error en check_derecho_fijo:", e)
+        return jsonify({"error": str(e)}), 500
+
+
+
