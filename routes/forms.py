@@ -896,7 +896,7 @@ def calcular_liquidacion():
 def check_derecho_fijo():
     try:
         today = datetime.utcnow()
-        primer_dia_mes = today.replace(day=9)
+        primer_dia_mes = today.replace(day=10)
         max_dia_habil = primer_dia_mes + timedelta(days=5)
         print("Primer dia del mes: ", primer_dia_mes)
 
@@ -936,6 +936,49 @@ def check_derecho_fijo():
         db.session.rollback()
         print("❌ Error en check_derecho_fijo:", e)
         return jsonify({"error": str(e)}), 500
+    
+
+
+@forms_bp.route('/forms/update_derecho_fijo', methods=['POST'])
+# @jwt_required()
+# @token_required
+# @access_required('')
+def update_derecho_fijo():
+    try:
+        data = request.get_json()
+        fecha_str = data.get("fecha")
+        nuevo_valor = data.get("value")
+
+        if not fecha_str or nuevo_valor is None:
+            return jsonify({"error": "Faltan campos requeridos: 'fecha' y 'value'"}), 400
+
+        # Parseamos fecha
+        fecha = datetime.strptime(fecha_str, "%Y-%m-%d")
+        anio, mes = fecha.year, fecha.month
+
+        # Buscamos si ya hay un valor para ese mes
+        registro = PriceDerechoFijo.query.filter(
+            db.extract('year', PriceDerechoFijo.fecha) == anio,
+            db.extract('month', PriceDerechoFijo.fecha) == mes
+        ).first()
+
+        if registro:
+            registro.value = nuevo_valor
+            registro.fecha = fecha  # Por si quiere cambiar la fecha exacta
+            message = "Valor actualizado exitosamente."
+        else:
+            registro = PriceDerechoFijo(fecha=fecha, value=nuevo_valor)
+            db.session.add(registro)
+            message = "Nuevo valor creado exitosamente."
+
+        db.session.commit()
+        return jsonify({"message": message, "data": registro.to_json()}), 200
+
+    except Exception as e:
+        db.session.rollback()
+        print("❌ Error al actualizar derecho fijo:", e)
+        return jsonify({"error": str(e)}), 500
+
 
 
 
