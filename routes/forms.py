@@ -20,6 +20,7 @@ from reportlab.lib.pagesizes import A4
 from datetime import datetime
 from io import BytesIO
 import logging
+from utils.bot import enviar_alerta
 
 forms_bp = Blueprint('forms_bp', __name__)
 
@@ -97,15 +98,18 @@ def derecho_fijo():
         return jsonify({
             "message": "Pago creado exitosamente.",
             "qr_code_base64": qr_base64,
+            "payment_url": qr_code_url,  # para redireccionar a checkout con tarjeta
             "preference_id": preference_response["response"]["id"],
             "uuid": str(new_derecho_fijo.uuid)  # Add this line
         }), 201
 
     except ValidationError as e:
         print("Error de validacion:", e)
+        enviar_alerta(f"❌ Ocurrio un error de validacion en el endpoint forms/derecho_fijo: {e}")
         return jsonify({"Error:": str(e)}), 400
     except Exception as e:
         print("Error details:", e)
+        enviar_alerta(f"❌ Ocurrio una excepcion en el endpoint forms/derecho_fijo {e}")
         db.session.rollback()
         return jsonify({"error": str(e)}), 500
     
@@ -144,17 +148,31 @@ def handle_webhook():
                 if status == 'approved' and external_reference:
                     derecho_fijo = DerechoFijoModel.query.filter_by(uuid=external_reference).first()
                     if derecho_fijo:
-                        save_receipt_to_db(db.session, derecho_fijo, payment_id)
+
+                        # 🔍 Obtener tipo de pago
+                        payment_type = response_data.get("payment_type_id", "qr")
+                        print(f"Método de pago detectado: {payment_type}")
+
+                        # Clasificamos tipo de pago en algo más legible
+                        if payment_type == "credit_card":
+                            payment_method = "Mercado Pago(TC)"
+                        elif payment_type == "debit_card":
+                            payment_method = "Mercado Pago(TD)"
+                        else:
+                            payment_method = "Mercado Pago(QR)"  # fallback
+
+                        # Guardamos el recibo con el método correcto
+                        save_receipt_to_db(db.session, derecho_fijo, payment_id, status="Pagado", payment_method=payment_method)
                         print("✅ Recibo guardado correctamente.")
+
                     else:
-                        print("❌ No se encontro el derecho fijo de uuid", external_reference)
-            else:
-                print("❌ Error al consultar el pago con Mercado Pago")
+                        print("❌ Error al consultar el pago con Mercado Pago")
 
         return jsonify({"message": "Webhook processed"}), 200
 
     except Exception as e:
         print("Error manejando webhook:", e)
+        enviar_alerta(f"❌ Ocurrio un error manejando el webhok {e}")
         return jsonify({"error": str(e)}), 500
 
 
@@ -197,6 +215,7 @@ def check_payment_status(preference_id):
     except Exception as e:
         traceback.print_exc()  # Print the full traceback for debugging
         print("Error checking payment status:", str(e))
+        enviar_alerta(f"Error checking payment status (/forms/payment_status):  {str(e)}")
         return jsonify({"error": str(e)}), 500
     
 @forms_bp.route('/forms/download_receipt', methods=['GET'])
@@ -247,6 +266,7 @@ def download_receipt():
 
     except Exception as e:
         print("❌ Error generando recibo:", e)
+        enviar_alerta(f"❌ Error generando recibo:\n> uuid_recibo: {uuid_recibo}\n> uuid_formulario: {uuid_formulario}")
         return jsonify({"error": str(e)}), 500
 
 
@@ -352,6 +372,8 @@ def period_to_string(start_date: datetime, end_date: datetime, rate: float) -> s
     days = (end_date - start_date).days
     period_rate = calculate_period_rate(rate, start_date, end_date)
     return f"{start_date.strftime('%d/%m/%Y')} .. {end_date.strftime('%d/%m/%Y')}: ({rate}% / 365) x {days} días = {period_rate:.4f}%"
+
+
 @forms_bp.route('/forms/confirm_receipt', methods=['POST'])
 def confirm_receipt():
     try:
@@ -378,6 +400,7 @@ def confirm_receipt():
     except Exception as e:
         db.session.rollback()
         print("❌ Error al confirmar recibo:", e)
+        enviar_alerta(f"❌ Error al confirmar recibo:\n> uuid:{uuid}\npayment_id:{payment_id}\n> error:{e}")
         return jsonify({"error": str(e)}), 500
 
 from reportlab.lib import colors
@@ -389,7 +412,7 @@ from io import BytesIO
 from PIL import Image as PILImage
 import os
 import uuid
-def save_receipt_to_db(db_session, derecho_fijo, payment_id, status="Pendiente"):
+def save_receipt_to_db(db_session, derecho_fijo, payment_id, status="Pendiente", payment_method="Mercado Pago(QR)"):
     from models import ReceiptModel
     from datetime import datetime
     
@@ -406,7 +429,8 @@ def save_receipt_to_db(db_session, derecho_fijo, payment_id, status="Pendiente")
         juicio_n=derecho_fijo.juicio_n,
         payment_id=payment_id,
         fecha_pago=datetime.now(),
-        status=status  # <- Este campo es el que da error si no lo incluís en la función
+        status=status,  # <- Este campo es el que da error si no lo incluís en la función
+        payment_method=payment_method
     )
 
 
@@ -416,6 +440,7 @@ def save_receipt_to_db(db_session, derecho_fijo, payment_id, status="Pendiente")
 
     except Exception as e:
         print("❌ Error guardando recibo:", e)
+        enviar_alerta(f"❌ Error guardando recibo:\n> Recibo:{receipt_id}\n> Error{e}")
         db_session.rollback()
 # FUNCION Q GENERA EL PDF DE LIQ
 def generate_liquidacion_pdf( capital: float, fecha_origen: datetime, fecha_liquidacion: datetime, 
@@ -635,9 +660,11 @@ def generar_liquidaciones():
 
     except ValueError as e:
         print("Error de validación:", e)
+        enviar_alerta(f"Error de validación (/forms/liquidaciones):{e}")
         return jsonify({"error": str(e)}), 400
     except Exception as e:
         print("Error en el cálculo de liquidación:", e)
+        enviar_alerta(f"Error en el calculo de la liquidacion: {e}")
         return jsonify({"error": str(e)}), 500
     
 
@@ -887,6 +914,7 @@ def calcular_liquidacion():
     except Exception as e:
         traceback.print_exc()
         logging.error(f"💥 Error completo: {str(e)}")
+        enviar_alerta(f"💥 Error al calular liquidacion(/forms/calcular_liquidacion): {e}")
         return jsonify({"ok": False, "error": str(e)})
     
 

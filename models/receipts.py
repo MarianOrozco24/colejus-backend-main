@@ -21,6 +21,7 @@ class ReceiptModel(db.Model):
     fecha_pago = db.Column(db.DateTime, nullable=True)
     
     status = db.Column(db.String(50), default="Pendiente")
+    payment_method = db.Column(db.String(60), nullable=True)
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
     updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
@@ -39,7 +40,8 @@ class ReceiptModel(db.Model):
             juicio_n=json_data.get('juicio_n'),
             payment_id=json_data.get('payment_id'),
             fecha_pago=json_data.get('fecha_pago'),
-            status=json_data.get('status', 'Pendiente')
+            status=json_data.get('status', 'Pendiente'),
+            payment_method = json_data.get('payment_method')
         )
 
     def to_json(self):
@@ -55,6 +57,7 @@ class ReceiptModel(db.Model):
             'payment_id': self.payment_id,
             'fecha_pago': self.fecha_pago.strftime('%Y-%m-%d %H:%M:%S') if self.fecha_pago else None,
             'status': self.status,
+            'payment_method' : self.payment_method,
             'created_at': self.created_at,
             'updated_at': self.updated_at
         }
