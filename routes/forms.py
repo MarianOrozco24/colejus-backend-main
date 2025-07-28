@@ -415,24 +415,38 @@ import uuid
 def save_receipt_to_db(db_session, derecho_fijo, payment_id, status="Pendiente", payment_method="Mercado Pago(QR)"):
     from models import ReceiptModel
     from datetime import datetime
-    
+
+    receipt_id = None  # Para prevenir errores si ocurre excepción antes de asignarlo
+
     try:
+        existing_receipt = ReceiptModel.query.filter_by(payment_id=payment_id).first()
+        
+        if existing_receipt:
+            if existing_receipt.status != status:
+                print("ℹ️ Recibo existente con estado diferente. Actualizando...")
+                existing_receipt.status = status
+                existing_receipt.fecha_pago = datetime.now()
+                db_session.commit()
+                print(f"🔁 Recibo actualizado: {existing_receipt.receipt_number} → status: {status}")
+            else:
+                print("ℹ️ Recibo ya existente con mismo estado. No se modifica.")
+            return
+
         receipt_id = str(uuid.uuid4())
         new_receipt = ReceiptModel(
-        receipt_number=f"REC-{receipt_id[:8]}",
-        uuid_derecho_fijo=derecho_fijo.uuid,
-        fecha_inicio=derecho_fijo.fecha_inicio,
-        fecha_vencimiento=derecho_fijo.fecha,
-        caratula=derecho_fijo.caratula,
-        total_depositado=derecho_fijo.total_depositado,
-        tasa_justicia=derecho_fijo.tasa_justicia,
-        juicio_n=derecho_fijo.juicio_n,
-        payment_id=payment_id,
-        fecha_pago=datetime.now(),
-        status=status,  # <- Este campo es el que da error si no lo incluís en la función
-        payment_method=payment_method
-    )
-
+            receipt_number=f"REC-{receipt_id[:8]}",
+            uuid_derecho_fijo=derecho_fijo.uuid,
+            fecha_inicio=derecho_fijo.fecha_inicio,
+            fecha_vencimiento=derecho_fijo.fecha,
+            caratula=derecho_fijo.caratula,
+            total_depositado=derecho_fijo.total_depositado,
+            tasa_justicia=derecho_fijo.tasa_justicia,
+            juicio_n=derecho_fijo.juicio_n,
+            payment_id=payment_id,
+            fecha_pago=datetime.now(),
+            status=status,
+            payment_method=payment_method
+        )
 
         db_session.add(new_receipt)
         db_session.commit()
@@ -440,8 +454,9 @@ def save_receipt_to_db(db_session, derecho_fijo, payment_id, status="Pendiente",
 
     except Exception as e:
         print("❌ Error guardando recibo:", e)
-        enviar_alerta(f"❌ Error guardando recibo:\n> Recibo:{receipt_id}\n> Error{e}")
+        enviar_alerta(f"❌ Error guardando recibo:\n> Recibo:{receipt_id or 'No generado'}\n> Error: {e}")
         db_session.rollback()
+
 # FUNCION Q GENERA EL PDF DE LIQ
 def generate_liquidacion_pdf( capital: float, fecha_origen: datetime, fecha_liquidacion: datetime, 
                           detalles: list, tasa_total: float, monto_final: float) -> BytesIO:
