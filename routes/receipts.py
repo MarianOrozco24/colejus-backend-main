@@ -17,8 +17,8 @@ def get_all_receipts():
         # Filtramos solos los que tengan id de pagos unicos
         receipts = ReceiptModel.query \
         .filter(ReceiptModel.status == 'Pagado') \
-        .order_by(desc(ReceiptModel.fecha_pago)) \
         .distinct(ReceiptModel.uuid_derecho_fijo) \
+        .order_by(desc(ReceiptModel.fecha_pago)) \
         .all()
 
         results = []
