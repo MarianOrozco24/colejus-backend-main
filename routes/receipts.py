@@ -17,8 +17,8 @@ def get_all_receipts():
         # Filtramos solos los que tengan id de pagos unicos
         receipts = ReceiptModel.query \
         .filter(ReceiptModel.status == 'Pagado') \
-        .distinct(ReceiptModel.uuid_derecho_fijo) \
         .order_by(desc(ReceiptModel.fecha_pago)) \
+        .distinct(ReceiptModel.payment_id) \
         .all()
 
         results = []
@@ -34,7 +34,8 @@ def get_all_receipts():
                 "juicio_n": r.juicio_n or "",
                 "payment_id": r.payment_id,
                 "fecha_pago": r.fecha_pago.strftime("%Y-%m-%d %H:%M") if r.fecha_pago else None,
-                "status": r.status
+                "status": r.status,
+                "payment_method" : r.payment_method
             })
 
         return jsonify(results), 200

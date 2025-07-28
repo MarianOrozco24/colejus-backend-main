@@ -376,6 +376,8 @@ def period_to_string(start_date: datetime, end_date: datetime, rate: float) -> s
 
 @forms_bp.route('/forms/confirm_receipt', methods=['POST'])
 def confirm_receipt():
+    uuid = None
+    payment_id = None
     try:
         data = request.json
         uuid = data.get("uuid")
