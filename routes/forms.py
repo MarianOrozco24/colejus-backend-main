@@ -1,5 +1,5 @@
 from datetime import datetime, timedelta
-from flask import Blueprint, request, jsonify, send_file
+from flask import Blueprint, app, request, jsonify, send_file
 from sqlalchemy import and_, or_
 from config.config import db
 from models import DerechoFijoModel, RateModel, ReceiptModel, PriceDerechoFijo
@@ -25,17 +25,17 @@ from utils.bot import enviar_alerta
 forms_bp = Blueprint('forms_bp', __name__)
 
 
-@forms_bp.route('/forms/derecho_fijo', methods=['POST'])
+@forms_bp.route('/forms/derecho_fijo_qr', methods=['POST'])
 # @jwt_required()
 # @token_required
 # @access_required('')
-def derecho_fijo():
-    print("🔍 Headers:", request.headers)
-    print("🔍 Raw body:", request.data)
+def derecho_fijo_qr():
+    # print("🔍 Headers:", request.headers)
+    # print("🔍 Raw body:", request.data)
+    print("📨 Se escogio pago con QR")
     data = request.json
     try:
         try:
-
             # Create and validate new DerechoFijo entry
             new_derecho_fijo = DerechoFijoModel.from_json(data)
             db.session.add(new_derecho_fijo)
@@ -82,7 +82,7 @@ def derecho_fijo():
 
         # Recién acá creás la preferencia
         preference_response = sdk.preference().create(preference_data)
-        print("\n\nPreference creada:", preference_response, "\n\n")  # Debug log
+        # print("\n\nPreference creada:", preference_response, "\n\n")  # Debug log
 
         # Use init_point instead of point_of_interaction
         qr_code_url = preference_response["response"]["init_point"] # Cambiar para produccion
@@ -98,7 +98,7 @@ def derecho_fijo():
         return jsonify({
             "message": "Pago creado exitosamente.",
             "qr_code_base64": qr_base64,
-            "payment_url": qr_code_url,  # para redireccionar a checkout con tarjeta
+            # "payment_url": qr_code_url,  # para redireccionar a checkout con tarjeta
             "preference_id": preference_response["response"]["id"],
             "uuid": str(new_derecho_fijo.uuid)  # Add this line
         }), 201
@@ -113,6 +113,84 @@ def derecho_fijo():
         db.session.rollback()
         return jsonify({"error": str(e)}), 500
     
+@forms_bp.route('/forms/derecho_fijo_tarjeta', methods=['POST'])
+def derecho_fijo_tarjeta():
+    data = request.json
+    print("💳 Se escogio pago con tarjeta")
+    try:
+        # Create and validate new DerechoFijo entry
+        new_derecho_fijo = DerechoFijoModel.from_json(data)
+        db.session.add(new_derecho_fijo)
+        db.session.commit()
+
+        amount = float(data['total_depositado'])  # Convert total_depositado to float for Mercado Pago
+
+        # Set up Mercado Pago preference for card payment
+        sdk = get_mp_sdk()
+        frontend_url = os.environ.get('FRONTEND_URL', 'http://localhost:3000')
+        backend_url = os.environ.get('BACKEND_URL', 'http://localhost:5000')
+
+        preference_data = {
+            "items": [
+                {
+                    "title": f"Pago Derecho Fijo - {data['juicio_n']}",
+                    "quantity": 1,
+                    "unit_price": amount,
+                    "currency_id": "ARS"
+                }
+            ],
+            "payer": {
+                "email": data.get("email", "example@example.com")
+            },
+            "back_urls": {
+                "success": f"{frontend_url}/payment/success",
+                "failure": f"{frontend_url}/payment/failure",
+                "pending": f"{frontend_url}/payment/pending"
+            },
+            "external_reference": str(new_derecho_fijo.uuid),
+            "notification_url": f"{backend_url}/api/forms/webhook"
+        }
+
+
+        # 🚨 ACA: solo agregar "auto_return" si frontend_url es HTTPS
+        if frontend_url.startswith("https://"):
+            preference_data["auto_return"] = "approved"
+        else:
+            print("⚠️ No se incluye auto_return porque FRONTEND_URL no es HTTPS")
+
+        # Recién acá creás la preferencia
+        preference_response = sdk.preference().create(preference_data)
+        # print("\n\nPreference creada:", preference_response, "\n\n")  # Debug log
+
+        # Use init_point for card payments
+        init_point = preference_response["response"]["init_point"]
+        if not init_point:
+            raise Exception("No se pudo obtener el punto de interacción para el pago con tarjeta")
+        
+
+        # Aquí puedes manejar el flujo de pago con tarjeta utilizando init_point
+        return jsonify({
+            "message": "Pago creado exitosamente.",
+            "init_point": init_point,
+            "preference_id": preference_response["response"]["id"],
+            "uuid": str(new_derecho_fijo.uuid)  # Add this line
+        }), 201
+    
+
+    except ValidationError as e:
+        print("Error de validacion:", e)
+        enviar_alerta(f"❌ Ocurrio un error de validacion en el endpoint forms/derecho_fijo_tarjeta: {e}")
+        return jsonify({"Error:": str(e)}), 400
+    except Exception as e:  
+        print("Error details:", e)
+        enviar_alerta(f"❌ Ocurrio una excepcion en el endpoint forms/derecho_fijo_tarjeta {e}")
+        db.session.rollback()
+        return jsonify({"error": str(e)}), 500
+    
+
+
+
+
 @forms_bp.route('/forms/webhook', methods=['POST'])
 def handle_webhook():
     try:

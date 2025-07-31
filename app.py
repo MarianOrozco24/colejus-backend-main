@@ -28,5 +28,5 @@ init_app(app)
 
 if __name__ == '__main__':
     # enviar_alerta("🤖 Monitoreando colejus")
-    app.run(debug=True)  # Para desarrollo modificar a host=0.0.0.0 y port=5000
+    app.run(debug=False)  # Para desarrollo modificar a host=0.0.0.0 y port=5000
     
