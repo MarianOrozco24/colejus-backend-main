@@ -62,7 +62,7 @@ def derecho_fijo_qr():
                 }
             ],
             "payer": {
-                "email": data.get("email", "example@example.com")
+                "email": data.get("email", "colejus@gmail.com")
             },
             "back_urls": {
                 "success": f"{frontend_url}/payment/success",
@@ -86,8 +86,7 @@ def derecho_fijo_qr():
 
         # Use init_point instead of point_of_interaction
         qr_code_url = preference_response["response"]["init_point"] # Cambiar para produccion
-        # qr_code_url = preference_response["response"]["sandbox_init_point"]
-    
+   
 
         # Generate the QR code image from the URL
         qr = qrcode.make(qr_code_url)
@@ -98,7 +97,6 @@ def derecho_fijo_qr():
         return jsonify({
             "message": "Pago creado exitosamente.",
             "qr_code_base64": qr_base64,
-            # "payment_url": qr_code_url,  # para redireccionar a checkout con tarjeta
             "preference_id": preference_response["response"]["id"],
             "uuid": str(new_derecho_fijo.uuid)  # Add this line
         }), 201
@@ -510,11 +508,17 @@ def save_receipt_to_db(db_session, derecho_fijo, payment_id, status="Pendiente",
     from models import ReceiptModel
     from datetime import datetime
 
-    receipt_id = None  # Para prevenir errores si ocurre excepción antes de asignarlo
+    receipt_id = None
 
     try:
+        # 🚨 Validar si ya existe un recibo asociado a este derecho_fijo
+        existing_by_form = ReceiptModel.query.filter_by(uuid_derecho_fijo=derecho_fijo.uuid).first()
+        if existing_by_form:
+            print(f"⚠️ Ya existe un recibo para el uuid {derecho_fijo.uuid}. Ignorando nuevo pago.")
+            return  # Salida temprana
+
+        # Validar si el payment ya se procesó por si llega duplicado
         existing_receipt = ReceiptModel.query.filter_by(payment_id=payment_id).first()
-        
         if existing_receipt:
             if existing_receipt.status != status:
                 print("ℹ️ Recibo existente con estado diferente. Actualizando...")
