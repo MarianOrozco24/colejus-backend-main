@@ -240,6 +240,14 @@ def handle_webhook():
                             payment_method = "Mercado Pago(QR)"  # fallback
 
                         # Guardamos el recibo con el método correcto
+
+                        # Colocamos prints para debugear
+                        print("Procesando pago con Mercado Pago...")
+                        print("uuid_derecho_fijo:", derecho_fijo.uuid, 
+                              "payment_id:", payment_id,
+                              "status:", status,
+                              "payment_method:", payment_method)
+                        
                         save_receipt_to_db(db.session, derecho_fijo, payment_id, status="Pagado", payment_method=payment_method)
                         print("✅ Recibo guardado correctamente.")
 
@@ -467,6 +475,12 @@ def confirm_receipt():
         derecho_fijo = DerechoFijoModel.query.get(uuid)
         if not derecho_fijo:
             return jsonify({"error": "Derecho Fijo no encontrado"}), 404
+
+        print("Confirmando recibo para derecho fijo:", derecho_fijo.uuid)
+        print("derecho_fijo:", derecho_fijo,
+              "uuid_derecho_fijo:", uuid,
+              "payment_id:", payment_id,
+              "status:", "Pagado")
 
         save_receipt_to_db(
             db_session=db.session,
