@@ -1114,6 +1114,7 @@ def update_derecho_fijo():
 
         db.session.commit()
         return jsonify({"message": message, "data": registro.to_json()}), 200
+    
 
     except Exception as e:
         db.session.rollback()
