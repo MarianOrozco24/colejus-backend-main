@@ -85,7 +85,7 @@ def derecho_fijo_qr():
         # print("\n\nPreference creada:", preference_response, "\n\n")  # Debug log
 
         # Use init_point instead of point_of_interaction
-        qr_code_url = preference_response["response"]["init_point"] # Cambiar para produccion
+        qr_code_url = preference_response["response"]["init_point"] 
    
 
         # Generate the QR code image from the URL
@@ -156,9 +156,8 @@ def derecho_fijo_tarjeta():
         else:
             print("⚠️ No se incluye auto_return porque FRONTEND_URL no es HTTPS")
 
-        # Recién acá creás la preferencia
+        # Se crea preferencia
         preference_response = sdk.preference().create(preference_data)
-        # print("\n\nPreference creada:", preference_response, "\n\n")  # Debug log
 
         # Use init_point for card payments
         init_point = preference_response["response"]["init_point"]
@@ -288,7 +287,9 @@ def check_payment_status(preference_id):
                 payment = search_result['response']['results'][0]
                 print(f"Found payment with status: {payment['status']}")
                 return jsonify({
-                    "status": payment['status']
+                    "status": payment['status'],
+                    "payment_id": payment['id'],
+                    "external_reference": preference['response']['external_reference']  # 👈 agregar esta línea
                 }), 200
         
         # If no payment found, return pending
