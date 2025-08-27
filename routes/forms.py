@@ -9,6 +9,8 @@ from utils.errors import ValidationError
 from config.config_mp import get_mp_sdk
 import qrcode
 import base64
+from sqlalchemy import desc
+
 from io import BytesIO
 from typing import List, Dict
 import math
@@ -21,14 +23,314 @@ from datetime import datetime
 from io import BytesIO
 import logging
 from utils.bot import enviar_alerta
+from reportlab.lib.units import mm
+from reportlab.lib import colors
+from reportlab.graphics.barcode import code128
+import os, base64, hmac, hashlib, requests
+from datetime import datetime
+from io import BytesIO
+import qrcode
+import hmac, hashlib, json
+
+from reportlab.lib.utils import ImageReader
+
 
 forms_bp = Blueprint('forms_bp', __name__)
 
+BOLSA_BASE_URL = os.getenv("BOLSA_BASE_URL", "")     
+BOLSA_API_KEY  = os.getenv("BOLSA_API_KEY", "")
+BOLSA_CLIENT_ID = os.getenv("BOLSA_CLIENT_ID", "")
+BOLSA_SECRET   = os.getenv("BOLSA_SECRET", "")
+
+def _make_qr_png_bytes(qr_payload, box_size=8, border=2, err=qrcode.constants.ERROR_CORRECT_M):
+    qr = qrcode.QRCode(version=None, error_correction=err, box_size=box_size, border=border)
+    qr.add_data(qr_payload)
+    qr.make(fit=True)
+    img = qr.make_image(fill_color="black", back_color="white")
+    buf = BytesIO(); img.save(buf, format="PNG"); buf.seek(0)
+    return buf
+
+def _bolsa_signature():
+    if not (BOLSA_CLIENT_ID and BOLSA_SECRET):
+        return None
+    
+    digest = hmac.new(BOLSA_SECRET.encode(), BOLSA_CLIENT_ID.encode(), hashlib.sha256).digest()
+    return base64.b64encode(digest).decode()
+
+def call_bolsa_create_boleta(derecho_fijo):
+
+    print("🔍 Llamando a Bolsa API para crear boleta...")
+
+    """Si la Bolsa te da API, usala; si no, devolvé None y armamos local."""
+    if not BOLSA_BASE_URL or not BOLSA_API_KEY or not _bolsa_signature():
+        print("Bolsa base url: ",BOLSA_BASE_URL)
+        print("Bolsa API key: ",BOLSA_API_KEY)
+        print("Bolsa signature: ",_bolsa_signature())
+        
+        print("⚠️ Bolsa API no disponible, usando formato local.")
+        return None
+    
+    try:
+        url = f"{BOLSA_BASE_URL}/boletas"
+        
+        payload = {
+            "external_id": derecho_fijo.uuid,
+            "amount": float(derecho_fijo.total_depositado or 0),
+            "due_date": (getattr(derecho_fijo, "fecha", None) or datetime.utcnow()).strftime("%Y-%m-%d"),
+            "case_number": derecho_fijo.juicio_n or "",
+            "court": derecho_fijo.juzgado or "",
+            "party": derecho_fijo.parte or "",
+        }
+        headers = {
+            "API-KEY": BOLSA_API_KEY,
+            "X-SIGNATURE": _bolsa_signature(),
+            "Content-Type": "application/json",
+        }
+        r = requests.post(url, json=payload, headers=headers, timeout=15)
+        r.raise_for_status()
+        data = r.json()
+        # normalizá claves según defina la Bolsa
+        return data.get("barcode") or data.get("bar_code"), data.get("qr_payload") or data.get("qr")
+    except Exception as e:
+        print("⚠️ Bolsa API no disponible, usando formato local:", e)
+        return None
+
+def get_bolsa_identifiers(derecho_fijo):
+    # 1) Intentar API oficial
+    res = call_bolsa_create_boleta(derecho_fijo)
+    
+    if res:
+        return res[0], res[1]
+    
+    # 2) Fallback local (ajustá a la especificación final)
+    monto = str(getattr(derecho_fijo, "total_depositado", "0"))
+    venc  = getattr(derecho_fijo, "fecha", None)
+    venc_yyyymmdd = venc.strftime("%Y%m%d") if venc else datetime.utcnow().strftime("%Y%m%d")
+    
+    barcode_string = f"CBAMZA|{derecho_fijo.uuid[:12]}|{monto}|{venc_yyyymmdd}|1" # Pagina de redireccion a la hora de escanear qr
+    qr_payload = barcode_string
+
+    return barcode_string, qr_payload
+
+
+
+
+def build_canonical_string(payload: dict) -> str:
+    # Ordena por clave, sin espacios para que sea determinístico
+    return json.dumps(payload, ensure_ascii=False, separators=(',', ':'), sort_keys=True)
+
+def generar_firma(payload: dict, secret: str) -> str:
+    msg = build_canonical_string(payload).encode("utf-8")
+    key = secret.encode("utf-8")
+    return hmac.new(key, msg, hashlib.sha256).hexdigest()
+
+def bcm_signature(client_id: str, secret: str) -> str:
+    dig = hmac.new(secret.encode("utf-8"), client_id.encode("utf-8"), hashlib.sha256).digest()
+    return base64.b64encode(dig).decode("utf-8")
+
+def _strip_prefix(b64: str) -> str:
+    return b64.split("base64,", 1)[-1].replace("\n", "").replace(" ", "")
+
+
+
+def _extract_qr_b64(bcm_json: dict) -> str | None:
+    # 1) esquema anidado típico: data.qrs[].qr_image_base64
+    qrs = (bcm_json or {}).get("data", {}).get("qrs", [])
+    # primero el OK, si existe
+    for q in qrs:
+        if (q.get("status", "").upper() == "OK") and q.get("qr_image_base64"):
+            return _strip_prefix(q["qr_image_base64"])
+    # luego cualquier QR que traiga imagen
+    for q in qrs:
+        if q.get("qr_image_base64"):
+            return _strip_prefix(q["qr_image_base64"])
+    # 2) fallbacks por si cambian nombres (poco probable)
+    alt = (bcm_json.get("qr_image_base64")
+           or bcm_json.get("qr_code_base64")
+           or bcm_json.get("qrImageBase64")
+           or bcm_json.get("qrBase64"))
+    return _strip_prefix(alt) if alt else None
+        
+
+
+def obtencion_codigo_qr(preference_data: dict, api_key: str, secret: str) -> dict:
+    """
+    Devuelve dict con:
+      - qr_image_b64: str  (PNG en base64)  ó
+      - qr_url: str        (si la API devuelve URL)
+      - raw: dict          (respuesta completa por si querés loggear)
+    """
+    # Agregamos la firma al body
+    signed_payload = dict(preference_data)  # copia
+    signed_payload["firma"] = generar_firma(preference_data, secret)
+
+    headers = {
+        "API-KEY": BOLSA_API_KEY,
+        "X-SIGNATURE": bcm_signature(BOLSA_CLIENT_ID, BOLSA_SECRET),
+        "Content-Type": "application/json",
+        "Accept": "application/json",
+    }
+
+    resp = requests.post(
+        BOLSA_BASE_URL,
+        headers=headers,
+        json=preference_data,  
+        timeout=20,
+    )
+
+    # Manejo explícito de status
+    if resp.status_code == 200:
+        data = resp.json() if resp.headers.get("content-type","").startswith("application/json") else {}
+        qr_b64 = _extract_qr_b64(data)
+        return {"ok": True, "qr_image_base64": qr_b64, "raw": data, "status_code": resp.status_code}    
+
+    if resp.status_code == 401:
+        raise ValueError("BCM: Unauthorized (401). Revisá BOLSA_API_KEY.")
+    if resp.status_code == 403:
+        raise ValueError("BCM: Forbidden (403). ¿IP permitida? ¿Rol?")
+    if resp.status_code >= 500:
+        raise ValueError(f"BCM: Error {resp.status_code} en el servidor.")
+
+    # Para cualquier otro estado, devolvemos detalle:
+    try:
+        err = resp.json()
+    except Exception:
+        err = {"text": resp.text}
+    raise ValueError(f"BCM: respuesta inesperada {resp.status_code}: {err}")
+
+    
+
+
+
+
+@forms_bp.route('/forms/derecho_fijo_qr_bcm', methods=['POST'])
+def generar_qr_bcm():
+    print("📨 Se escogió pago con QR en BCM")
+    data = request.json or {}
+
+    try:
+        # 1) Validamos/normalizamos inputs mínimos
+        required = ["total_depositado", "caratula", "fecha_inicio", "juicio_n"]
+        faltan = [k for k in required if not data.get(k)]
+        if faltan:
+            return jsonify({"error": f"Faltan campos: {', '.join(faltan)}"}), 400
+
+        # Monto como float y formateo a string si la API lo requiere
+        amount = float(str(data["total_depositado"]).replace(",", "."))
+        if amount <= 0:
+            return jsonify({"error": "El monto debe ser mayor a 0."}), 400
+
+        # Fecha (ISO). Ajustá al formato exacto que pida BCM si fuese necesario.
+        # p.ej. 'YYYY-MM-DD' o 'YYYY-MM-DDTHH:MM:SS'
+        due = data["fecha_inicio"]  # asumo viene en ISO correcto desde el front
+
+        # 2) Creamos DerechoFijo
+        try:
+            new_derecho_fijo = DerechoFijoModel.from_json(data)
+            db.session.add(new_derecho_fijo)
+            db.session.commit()
+        except Exception as e:
+            db.session.rollback()
+            print("Error al insertar datos en DB", e)
+            return jsonify({"error": "No se pudo registrar el derecho fijo"}), 500
+
+        # 3) Armamos payload para BCM
+        preference_data = {
+            "amount": f"{amount:.2f}",         # en string con 2 decimales si hace falta
+            "description": data["caratula"],
+            "transactionId": str(new_derecho_fijo.uuid),
+            "due": due,
+            "codigoCliente": data["juicio_n"],
+            "referencia": data.get("referencia"),  # puede ir None
+        }
+
+        # 4) Llamada firmada a BCM
+        qr_res = obtencion_codigo_qr(preference_data, BOLSA_API_KEY, BOLSA_SECRET)
+
+        # 5) Guardamos recibo en "Pendiente"
+        try:
+            save_receipt_to_db(
+                db.session,
+                derecho_fijo=new_derecho_fijo,
+                payment_id=str(new_derecho_fijo.uuid),
+                status="Pendiente",
+                payment_method="QR BCM"
+            )
+            db.session.commit()
+        except Exception as e:
+            db.session.rollback()
+            print("Error guardando recibo", e)
+
+    
+        # en tu endpoint, luego del requests.post(...)
+        qr_b64 = qr_res.get("qr_image_base64")
+        return jsonify({
+            "ok": True,
+            "payment_method": "QR BCM",
+            "uuid": str(new_derecho_fijo.uuid),
+            "qr_image_base64": qr_b64,   # <— SIEMPRE esta clave
+        }), 200
+
+    except ValidationError as e:
+        print("Error de validación:", e)
+        enviar_alerta(f"❌ Error de validación en /forms/qr_bcm: {e}")
+        return jsonify({"error": str(e)}), 400
+
+    except Exception as e:
+        print("Excepción en /forms/qr_bcm:", e)
+        enviar_alerta(f"❌ Excepción en /forms/qr_bcm: {e}")
+        db.session.rollback()
+        return jsonify({"error": "Error interno"}), 500
+    
+
+    
+
+@forms_bp.route('forms/drecho_fijo_pres_bcm')
+def generar_boleta_bolsa():
+    try:
+        data = request.json
+
+        # Validar y crear entrada DerechoFijo
+        nuevo_df = DerechoFijoModel.from_json(data)
+        db.session.add(nuevo_df)
+        db.session.commit()
+
+        # 📌 Generar código de barras temporal (luego se usará el definitivo)
+        # Este será reemplazado por el valor real que nos indique la Bolsa
+        # codigo_barra = f"COD-{nuevo_df.uuid[:12]}"
+
+        # Codigo de barra de la bolsa
+        codigo_barra, qr_payload = get_bolsa_identifiers(nuevo_df)
+
+
+        # 📄 Generar PDF con código de barras
+        pdf_buffer = generar_boleta_pdf_con_estilo(nuevo_df, codigo_barra, qr_payload)
+
+        # Guardar recibo en estado "Pendiente"
+        save_receipt_to_db(
+            db.session, 
+            derecho_fijo=nuevo_df, 
+            payment_id=codigo_barra,
+            status="Pendiente", 
+            payment_method="Boleta Bolsa de Comercio"
+        )
+
+        return send_file(
+            pdf_buffer,
+            as_attachment=True,
+            download_name=f"boleta_{nuevo_df.juicio_n}.pdf",
+            mimetype="application/pdf"
+        )
+
+    except Exception as e:
+        db.session.rollback()
+        print("❌ Error generando boleta:", e)
+        return jsonify({"error": str(e)}), 500
+
+
+
 
 @forms_bp.route('/forms/derecho_fijo_qr', methods=['POST'])
-# @jwt_required()
-# @token_required
-# @access_required('')
 def derecho_fijo_qr():
     # print("🔍 Headers:", request.headers)
     # print("🔍 Raw body:", request.data)
@@ -111,6 +413,8 @@ def derecho_fijo_qr():
         db.session.rollback()
         return jsonify({"error": str(e)}), 500
     
+
+
 @forms_bp.route('/forms/derecho_fijo_tarjeta', methods=['POST'])
 def derecho_fijo_tarjeta():
     data = request.json
@@ -303,6 +607,79 @@ def check_payment_status(preference_id):
         enviar_alerta(f"Error checking payment status (/forms/payment_status):  {str(e)}")
         return jsonify({"error": str(e)}), 500
     
+
+@forms_bp.route('/forms/qr_bcm_payment_confirm', methods=['POST'])
+def confirmacion_de_pago_bcm():
+    """
+    Confirma el pago del recibo ligado a uuid_derecho_fijo.
+    Idempotente: si ya está pagado, devuelve 200 igual.
+    """
+    payload = request.get_json(silent=True) or {}
+    uuid_df = payload.get("uuid_derecho_fijo") or request.args.get("uuid_derecho_fijo")
+
+    if not uuid_df or not _is_valid_uuid(uuid_df):
+        return jsonify({"ok": False, "error": "uuid_derecho_fijo inválido o ausente"}), 400
+
+    try:
+        # Si este endpoint fuese webhook de BCM, validar firma aquí (X-SIGNATURE / API-KEY)
+
+        # Bloque transaccional; lockea la fila para evitar carreras
+        with db.session.begin():
+            receipt = (
+                db.session.query(ReceiptModel)
+                .filter(ReceiptModel.uuid_derecho_fijo == uuid_df)
+                .order_by(desc(ReceiptModel.fecha_pago))   # o el campo que uses
+                .with_for_update(skip_locked=True)
+                .first()
+            )
+
+            if not receipt:
+                return jsonify({"ok": False, "error": "Recibo no encontrado"}), 404
+
+            # Idempotencia
+            if (receipt.status or "").lower() == "pagado":
+                return jsonify({
+                    "ok": True,
+                    "message": "El recibo ya estaba confirmado.",
+                    "uuid_derecho_fijo": uuid_df,
+                    "status": receipt.status,
+                    "fecha_pago": receipt.fecha_pago.isoformat() if receipt.fecha_pago else None,
+                }), 200
+
+            # (Opcional pero recomendado): consultar a BCM antes de confirmar
+            # estado_ok = consultar_estado_bcm(transaction_id=receipt.payment_id)
+            # if not estado_ok: return jsonify({"ok": False, "error": "BCM no confirmó el pago"}), 409
+
+            receipt.status = "Pagado"
+            receipt.fecha_pago = datetime.utcnow()
+            # (Opcional) guardar datos del callback de BCM:
+            # receipt.gateway_payload = payload  # si lo querés persistir
+
+            db.session.add(receipt)
+
+        print("✅ Pago confirmado correctamente para:", uuid_df)
+        return jsonify({
+            "ok": True,
+            "message": "Pago confirmado correctamente.",
+            "uuid_derecho_fijo": uuid_df,
+            "status": "Pagado",
+        }), 200
+
+    except Exception as e:
+        print("Error en confirmacion_de_pago_bcm:", e)
+        enviar_alerta(f"Error en confirmacion_de_pago_bcm: {e}")
+        # rollback implícito por el context manager si falló dentro del begin()
+        return jsonify({"ok": False, "error": str(e)}), 500
+    
+
+def _is_valid_uuid(value: str) -> bool:
+    try:
+        uuid.UUID(value)
+        return True
+    except Exception:
+        return False
+
+
 @forms_bp.route('/forms/download_receipt', methods=['GET'])
 def download_receipt():
     try:
@@ -353,6 +730,260 @@ def download_receipt():
         print("❌ Error generando recibo:", e)
         enviar_alerta(f"❌ Error generando recibo:\n> uuid_recibo: {uuid_recibo}\n> uuid_formulario: {uuid_formulario}")
         return jsonify({"error": str(e)}), 500
+
+
+from reportlab.graphics.barcode import code128
+from reportlab.graphics.shapes import Drawing
+
+###====== Deprecado, se deja en caso de haber mal funcionamiento con la original =======##
+
+def generar_boleta_pdf_con_codigo(derecho_fijo, codigo_barra):
+    buffer = BytesIO()
+    c = canvas.Canvas(buffer, pagesize=A4)
+
+    # Encabezado
+    c.setFont("Helvetica-Bold", 16)
+    c.drawString(100, 750, "Boleta de Pago Presencial")
+    c.setFont("Helvetica", 12)
+    c.drawString(100, 730, f"Expediente: {derecho_fijo.juicio_n}")
+    c.drawString(100, 710, f"Carátula: {derecho_fijo.caratula}")
+    c.drawString(100, 690, f"Importe a pagar: ${derecho_fijo.total_depositado}")
+
+    # Código de barras
+    barcode = code128.Code128(codigo_barra, barHeight=40)
+    barcode.drawOn(c, 100, 600)
+
+    # Pie de página
+    c.setFont("Helvetica-Oblique", 10)
+    c.drawString(100, 570, "Presente esta boleta en la Bolsa de Comercio para realizar el pago.")
+
+    c.save()
+    buffer.seek(0)
+    return buffer
+
+##=====================================================================================##
+
+from io import BytesIO
+def _make_qr_png_bytes(qr_payload, box_size=8, border=2, err=qrcode.constants.ERROR_CORRECT_M):
+    qr = qrcode.QRCode(version=None, error_correction=err, box_size=box_size, border=border)
+    qr.add_data(qr_payload)
+    qr.make(fit=True)
+    img = qr.make_image(fill_color="black", back_color="white")
+    buf = BytesIO()
+    img.save(buf, format="PNG")
+    buf.seek(0)
+    return buf
+
+
+def generar_boleta_pdf_con_estilo(derecho_fijo, codigo_barra: str, qr_payload: str = None):  # <<<
+    """
+    Genera un PDF de boleta con:
+      - Encabezado con logo y título
+      - Bloques de Datos del expediente y Datos de pago
+      - Monto destacado
+      - Código de barras centrado + legible
+      - Instrucciones
+      - Línea de corte y Talón para caja (con mini código de barras)
+      - (Opcional) QR grande y mini‑QR en talón si se envía `qr_payload`  # <<<
+    """
+    buffer = BytesIO()
+    c = canvas.Canvas(buffer, pagesize=A4)
+    width, height = A4
+
+    # --- Config ---
+    MARGIN = 15 * mm
+    BOX_RADIUS = 6
+    LIGHT_BORDER = colors.HexColor("#E5E7EB")
+    PRIMARY = colors.HexColor("#06092E")
+    ACCENT = colors.HexColor("#4F46E5")
+    TEXT = colors.HexColor("#111827")
+
+    c.setTitle("Boleta de Pago - Bolsa de Comercio")
+
+    # --- Logos ---
+    base_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    logo_left = os.path.join(base_dir, "utils", "assets", "logo-violeta.png")
+
+    def try_draw_image(path, x, y, w, h):
+        if os.path.exists(path):
+            try:
+                c.drawImage(path, x, y, width=w, height=h, preserveAspectRatio=True, mask='auto')
+            except:
+                pass
+
+    # --- Encabezado ---
+    header_h = 32 * mm
+    c.setFillColor(colors.white)
+    c.rect(0, height - header_h, width, header_h, fill=1, stroke=0)
+    c.setStrokeColor(LIGHT_BORDER)
+    c.setLineWidth(1)
+    c.line(MARGIN, height - header_h, width - MARGIN, height - header_h)
+    try_draw_image(logo_left, MARGIN, height - 26*mm, 24*mm, 24*mm)
+
+    c.setFillColor(PRIMARY)
+    c.setFont("Helvetica-Bold", 16)
+    c.drawString(MARGIN + 30*mm, height - 14*mm, "COLEGIO PÚBLICO DE ABOGADOS Y PROCURADORES")
+    c.setFont("Helvetica-Bold", 12)
+    c.setFillColor(ACCENT)
+    c.drawString(MARGIN + 30*mm, height - 20*mm, "Segunda Circunscripción Judicial - Mendoza")
+    c.setFillColor(TEXT)
+    c.setFont("Helvetica-Bold", 15)
+    c.drawString(MARGIN, height - header_h - 8*mm, "Boleta de Pago Presencial – Bolsa de Comercio")
+
+    def rounded_box(x, y, w, h, stroke=LIGHT_BORDER, fill=None):
+        c.setStrokeColor(stroke)
+        c.setFillColor(fill if fill else colors.white)
+        c.setLineWidth(1)
+        c.roundRect(x, y, w, h, BOX_RADIUS, stroke=1, fill=1)
+
+    def label_value(x, y, label, value, lw=110):
+        c.setFont("Helvetica-Bold", 9)
+        c.setFillColor(colors.HexColor("#6B7280"))
+        c.drawString(x, y, label)
+        c.setFont("Helvetica", 10)
+        c.setFillColor(TEXT)
+        c.drawString(x + lw, y, value if value is not None else "-")
+
+    # --- Bloque Datos del expediente ---
+    top = height - header_h - 14*mm
+    box1_h = 48*mm
+    rounded_box(MARGIN, top - box1_h, width - 2*MARGIN, box1_h)
+    c.setFont("Helvetica-Bold", 11); c.setFillColor(PRIMARY)
+    c.drawString(MARGIN + 6*mm, top - 7*mm, "Datos del expediente")
+    c.setFillColor(TEXT)
+
+    y = top - 15*mm
+    left_x = MARGIN + 8*mm
+    col2_x = width/2 + 2*mm
+    label_value(left_x, y, "N° de Expediente:", getattr(derecho_fijo, "juicio_n", ""))
+    label_value(col2_x, y, "Juzgado:", getattr(derecho_fijo, "juzgado", ""))
+
+    y -= 7*mm
+    label_value(left_x, y, "Carátula:", getattr(derecho_fijo, "caratula", ""))
+    label_value(col2_x, y, "Parte:", getattr(derecho_fijo, "parte", ""))
+
+    y -= 7*mm
+    fi = getattr(derecho_fijo, "fecha_inicio", None)
+    fv = getattr(derecho_fijo, "fecha", None)
+    fi_str = fi.strftime("%d/%m/%Y") if fi else "-"
+    fv_str = fv.strftime("%d/%m/%Y") if fv else "-"
+    label_value(left_x, y, "Fecha Inicio:", fi_str)
+    label_value(col2_x, y, "Fecha Vencimiento:", fv_str)
+
+    y -= 7*mm
+    label_value(left_x, y, "Lugar:", getattr(derecho_fijo, "lugar", ""))
+
+    # --- Bloque Datos de pago + Monto ---
+    box2_h = 34*mm
+    top2 = top - box1_h - 6*mm
+    rounded_box(MARGIN, top2 - box2_h, width - 2*MARGIN, box2_h)
+    c.setFont("Helvetica-Bold", 11); c.setFillColor(PRIMARY)
+    c.drawString(MARGIN + 6*mm, top2 - 7*mm, "Datos de pago")
+    c.setFillColor(TEXT)
+
+    y2 = top2 - 15*mm
+    label_value(MARGIN + 8*mm, y2, "Tasa de justicia:", f"$ {getattr(derecho_fijo, 'tasa_justicia', '0')}")
+    label_value(width/2 - 9*mm, y2, "Derecho fijo 5%:", f"$ {getattr(derecho_fijo, 'derecho_fijo_5pc', '0')}")
+
+    amount_box_w = 70*mm
+    amount_box_h = 18*mm
+    amount_box_x = width - MARGIN - amount_box_w - 4
+    amount_box_y = top2 - amount_box_h - 10*mm
+    rounded_box(amount_box_x, amount_box_y, amount_box_w, amount_box_h, stroke=ACCENT)
+    c.setFillColor(ACCENT); c.setFont("Helvetica-Bold", 10)
+    c.drawString(amount_box_x + 6, amount_box_y + amount_box_h - 6*mm, "Importe a pagar")
+    c.setFillColor(TEXT); c.setFont("Helvetica-Bold", 14)
+    c.drawRightString(amount_box_x + amount_box_w - 6, amount_box_y + 6, f"$ {getattr(derecho_fijo, 'total_depositado', '0')}")
+
+    # --- Código de barras (principal) ---
+    top3 = top2 - box2_h - 8*mm
+    barcode = code128.Code128(codigo_barra, barHeight=18*mm, barWidth=0.5)
+    bw = barcode.width
+    bx = (width - bw) / 7
+    by = top3 - 17*mm
+    barcode.drawOn(c, bx, by)
+    c.setFont("Helvetica", 9); c.setFillColor(colors.HexColor("#4B5563"))
+    c.drawCentredString(width/3.5, by - 4*mm, codigo_barra)
+
+    # --- QR grande (opcional) ---  # <<<
+    if qr_payload:
+        try:
+            qr_buf = _make_qr_png_bytes(qr_payload, box_size=8, border=2)
+            qr_img = ImageReader(qr_buf)
+            qr_size = 25 * mm                     # recomendado ≥ 30–35 mm
+            qr_x = width - 30*mm - qr_size        # margen derecho
+            qr_y = by + (mm - 10)                     # sobre el barcode
+            c.drawImage(qr_img, qr_x, qr_y, width=qr_size, height=qr_size, preserveAspectRatio=True, mask='auto')
+            c.setFont("Helvetica", 8); c.setFillColor(colors.HexColor("#6B7280"))
+            c.drawCentredString(qr_x + qr_size/2, qr_y - 10, "Escanear en caja")
+        except Exception as e:
+            print("⚠️ Error dibujando QR:", e)
+
+    # --- Instrucciones ---
+    instr_top = by - 14*mm
+    rounded_box(MARGIN, instr_top - 22*mm, width - 2*MARGIN, 28*mm)
+    c.setFont("Helvetica-Bold", 10); c.setFillColor(PRIMARY)
+    c.drawString(MARGIN + 6*mm, instr_top - 1*mm, "Instrucciones")
+    c.setFillColor(TEXT); c.setFont("Helvetica", 9)
+    lines = [
+        "• Presentar esta boleta en la Bolsa de Comercio para efectuar el pago.",
+        "• La boleta es válida hasta la fecha de vencimiento indicada.",
+        "• Conserve el talón inferior sellado como comprobante de pago.",
+    ]
+    yy = instr_top - 6*mm
+    for line in lines:
+        c.drawString(MARGIN + 8*mm, yy, line)
+        yy -= 5*mm
+
+    # --- Línea de corte ---
+    cut_y = instr_top - 26*mm
+    c.setStrokeColor(colors.HexColor("#9CA3AF"))
+    c.setDash(2, 2); c.line(MARGIN, cut_y, width - MARGIN, cut_y); c.setDash()
+    c.setFont("Helvetica", 8); c.setFillColor(colors.HexColor("#6B7280"))
+    c.drawCentredString(width/2, cut_y - 4*mm, "— — — — — — — — — — — —  Corte aquí  — — — — — — — — — — — —")
+
+    # --- Talón para caja ---
+    slip_h = 40*mm
+    slip_y = cut_y - slip_h - 6*mm
+    rounded_box(MARGIN, slip_y, width - 2*MARGIN, slip_h)
+
+    c.setFillColor(PRIMARY); c.setFont("Helvetica-Bold", 10)
+    c.drawString(MARGIN + 6*mm, slip_y + slip_h - 7*mm, "Talón para caja – Bolsa de Comercio")
+    c.setFillColor(TEXT); c.setFont("Helvetica", 9)
+
+    ty = slip_y + slip_h - 14*mm
+    label_value(MARGIN + 8*mm, ty, "Expediente:", getattr(derecho_fijo, "juicio_n", ""))
+    ty -= 6*mm
+    label_value(MARGIN + 8*mm, ty, "Carátula:", (getattr(derecho_fijo, "caratula", "") or "")[:45])
+    ty -= 6*mm
+    label_value(MARGIN + 8*mm, ty, "Importe:", f"$ {getattr(derecho_fijo, 'total_depositado', '0')}")
+
+    # mini código de barras
+    mini = code128.Code128(codigo_barra, barHeight=12*mm, barWidth=0.45)
+    mini_x = width - MARGIN - mini.width - 10
+    mini_y = slip_y + 8*mm
+    mini.drawOn(c, mini_x, mini_y)
+    c.setFont("Helvetica", 8); c.setFillColor(colors.HexColor("#4B5563"))
+    c.drawRightString(mini_x + mini.width - 15, mini_y - 10, codigo_barra)
+
+    # # mini‑QR en talón (opcional)  # <<<
+    # if qr_payload:
+    #     try:
+    #         mini_qr_buf = _make_qr_png_bytes(qr_payload, box_size=5, border=2)
+    #         mini_qr_img = ImageReader(mini_qr_buf)
+    #         mini_qr_size = 26 * mm
+    #         mini_qr_x = mini_x - 6 - mini_qr_size    # a la izquierda del mini-barcode
+    #         mini_qr_y = slip_y + 7*mm
+    #         c.drawImage(mini_qr_img, mini_qr_x, mini_qr_y, width=mini_qr_size, height=mini_qr_size, preserveAspectRatio=True, mask='auto')
+    #     except Exception as e:
+    #         print("⚠️ Error dibujando mini‑QR:", e)
+
+    # Footer
+    c.setFillColor(colors.HexColor("#9CA3AF")); c.setFont("Helvetica", 8)
+    c.drawCentredString(width/2, 10*mm, "Colegio Público de Abogados y Procuradores – 2° Circ. Judicial (Mendoza)")
+
+    c.showPage(); c.save(); buffer.seek(0)
+    return buffer
 
 
 def generate_receipt_pdf( payment_data, derecho_fijo):
@@ -505,6 +1136,24 @@ from io import BytesIO
 from PIL import Image as PILImage
 import os
 import uuid
+
+def build_bolsa_payload_local(derecho_fijo, convenio="CBAMZA", version="1"):
+    """
+    Arma un payload QR/Barcode en texto siguiendo especificación de la Bolsa.
+    👇 Reemplazar campos cuando te pasen el formato final.
+    """
+    monto = str(getattr(derecho_fijo, "total_depositado", "0"))
+    venc  = getattr(derecho_fijo, "fecha", None)
+    venc_yyyymmdd = venc.strftime("%Y%m%d") if venc else datetime.utcnow().strftime("%Y%m%d")
+    # Ejemplo: TLV-like simple | prefijo|uuid|monto|venc|ver
+    barcode_string = f"{convenio}|{derecho_fijo.uuid[:12]}|{monto}|{venc_yyyymmdd}|{version}"
+    qr_payload     = barcode_string  # muchas Bolsas usan el mismo dato para QR y barras
+    return barcode_string, qr_payload
+
+
+
+
+
 def save_receipt_to_db(db_session, derecho_fijo, payment_id, status="Pendiente", payment_method="Mercado Pago(QR)"):
     from models import ReceiptModel
     from datetime import datetime
