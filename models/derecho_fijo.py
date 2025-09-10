@@ -14,9 +14,9 @@ class DerechoFijoModel(db.Model):
     tasa_justicia = db.Column(db.String(80), nullable=True)
     juicio_n = db.Column(db.String(80), nullable=True)
     derecho_fijo_5pc = db.Column(db.String(80), nullable=True)
-    caratula = db.Column(db.String(80), nullable=True)
-    parte = db.Column(db.String(80), nullable=True)
-    juzgado = db.Column(db.String(80), nullable=True)
+    caratula = db.Column(db.String(255), nullable=True)
+    parte = db.Column(db.String(255), nullable=True)
+    juzgado = db.Column(db.String(255), nullable=True)
     total_depositado = db.Column(db.String(80), nullable=True)
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
     

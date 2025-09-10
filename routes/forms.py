@@ -5,7 +5,7 @@ from config.config import db
 from models import DerechoFijoModel, RateModel, ReceiptModel, PriceDerechoFijo
 from utils.decorators import token_required, access_required
 from flask_jwt_extended import jwt_required
-from utils.errors import ValidationError
+from utils.errors import ValidationError, register_in_txt
 from config.config_mp import get_mp_sdk
 import qrcode
 import base64
@@ -189,7 +189,7 @@ def obtencion_codigo_qr(preference_data: dict, api_key: str, secret: str) -> dic
     if resp.status_code == 403:
         raise ValueError("BCM: Forbidden (403). ¿IP permitida? ¿Rol?")
     if resp.status_code >= 500:
-        raise ValueError(f"BCM: Error {resp.status_code} en el servidor.")
+        raise ValueError(f"BCM: Error {resp.status_code} en el servidor. {resp.text}")
 
     # Para cualquier otro estado, devolvemos detalle:
     try:
@@ -236,12 +236,12 @@ def generar_qr_bcm():
 
         # 3) Armamos payload para BCM
         preference_data = {
-            "amount": f"{amount:.2f}",         # en string con 2 decimales si hace falta
+            "amount": f"{amount:.2f}",         
             "description": data["caratula"],
             "transactionId": str(new_derecho_fijo.uuid),
             "due": due,
-            "codigoCliente": data["juicio_n"],
-            "referencia": data.get("referencia"),  # puede ir None
+            "codigoCliente": data.get("juicio_n"),
+            "referencia": data.get("referencia"),  
         }
 
         # 4) Llamada firmada a BCM
@@ -274,11 +274,13 @@ def generar_qr_bcm():
     except ValidationError as e:
         print("Error de validación:", e)
         enviar_alerta(f"❌ Error de validación en /forms/qr_bcm: {e}")
+        register_in_txt(f"Error de validación en /forms/qr_bcm: {e}", "logs_bcm.txt")
         return jsonify({"error": str(e)}), 400
 
     except Exception as e:
         print("Excepción en /forms/qr_bcm:", e)
-        enviar_alerta(f"❌ Excepción en /forms/qr_bcm: {e}")
+        enviar_alerta(f"❌ Excepción en /forms/qr_bcm: {e}",)
+        register_in_txt(f"Excepción en /forms/qr_bcm: {e}", "logs_bcm.txt")
         db.session.rollback()
         return jsonify({"error": "Error interno"}), 500
     
@@ -325,6 +327,8 @@ def generar_boleta_bolsa():
     except Exception as e:
         db.session.rollback()
         print("❌ Error generando boleta:", e)
+        enviar_alerta(f"❌ Error generando boleta: {e}")
+        register_in_txt(f"Error generando boleta: {e}", "logs_bcm.txt")
         return jsonify({"error": str(e)}), 500
 
 
@@ -406,10 +410,12 @@ def derecho_fijo_qr():
     except ValidationError as e:
         print("Error de validacion:", e)
         enviar_alerta(f"❌ Ocurrio un error de validacion en el endpoint forms/derecho_fijo: {e}")
+        register_in_txt(f"Error de validacion en forms/derecho_fijo: {e}", "logs_mp.txt")
         return jsonify({"Error:": str(e)}), 400
     except Exception as e:
         print("Error details:", e)
         enviar_alerta(f"❌ Ocurrio una excepcion en el endpoint forms/derecho_fijo {e}")
+        register_in_txt(f"Excepcion en forms/derecho_fijo: {e}", "logs_mp.txt")
         db.session.rollback()
         return jsonify({"error": str(e)}), 500
     
@@ -442,7 +448,7 @@ def derecho_fijo_tarjeta():
                 }
             ],
             "payer": {
-                "email": data.get("email", "example@example.com")
+                "email": data.get("email", "colejus@colejus.com")
             },
             "back_urls": {
                 "success": f"{frontend_url}/payment/success",
@@ -457,14 +463,16 @@ def derecho_fijo_tarjeta():
         # 🚨 ACA: solo agregar "auto_return" si frontend_url es HTTPS
         if frontend_url.startswith("https://"):
             preference_data["auto_return"] = "approved"
+            init_point_reference = "init_point"
         else:
             print("⚠️ No se incluye auto_return porque FRONTEND_URL no es HTTPS")
+            init_point_reference = "sandbox_init_point"  # fallback seguro
 
         # Se crea preferencia
         preference_response = sdk.preference().create(preference_data)
-
+    
         # Use init_point for card payments
-        init_point = preference_response["response"]["init_point"]
+        init_point = preference_response["response"][init_point_reference]
         if not init_point:
             raise Exception("No se pudo obtener el punto de interacción para el pago con tarjeta")
         
@@ -481,10 +489,12 @@ def derecho_fijo_tarjeta():
     except ValidationError as e:
         print("Error de validacion:", e)
         enviar_alerta(f"❌ Ocurrio un error de validacion en el endpoint forms/derecho_fijo_tarjeta: {e}")
+        register_in_txt(f"Error de validacion en forms/derecho_fijo_tarjeta: {e}", "logs_mp.txt")
         return jsonify({"Error:": str(e)}), 400
     except Exception as e:  
         print("Error details:", e)
         enviar_alerta(f"❌ Ocurrio una excepcion en el endpoint forms/derecho_fijo_tarjeta {e}")
+        register_in_txt(f"Excepcion en forms/derecho_fijo_tarjeta: {e}", "logs_mp.txt")
         db.session.rollback()
         return jsonify({"error": str(e)}), 500
     
@@ -559,7 +569,8 @@ def handle_webhook():
 
     except Exception as e:
         print("Error manejando webhook:", e)
-        enviar_alerta(f"❌ Ocurrio un error manejando el webhok {e}")
+        enviar_alerta(f"❌ Ocurrio un error manejando el webhook {e}")
+        register_in_txt(f"Error manejando webhook: {e}", "logs_mp.txt")
         return jsonify({"error": str(e)}), 500
 
 
@@ -605,6 +616,7 @@ def check_payment_status(preference_id):
         traceback.print_exc()  # Print the full traceback for debugging
         print("Error checking payment status:", str(e))
         enviar_alerta(f"Error checking payment status (/forms/payment_status):  {str(e)}")
+        register_in_txt(f"Error checking payment status (/forms/payment_status):  {str(e)}", "logs_mp.txt")
         return jsonify({"error": str(e)}), 500
     
 
@@ -668,6 +680,7 @@ def confirmacion_de_pago_bcm():
     except Exception as e:
         print("Error en confirmacion_de_pago_bcm:", e)
         enviar_alerta(f"Error en confirmacion_de_pago_bcm: {e}")
+        register_in_txt(f"Error en confirmacion_de_pago_bcm: {e}")
         # rollback implícito por el context manager si falló dentro del begin()
         return jsonify({"ok": False, "error": str(e)}), 500
     
@@ -727,8 +740,9 @@ def download_receipt():
         )
 
     except Exception as e:
-        print("❌ Error generando recibo:", e)
-        enviar_alerta(f"❌ Error generando recibo:\n> uuid_recibo: {uuid_recibo}\n> uuid_formulario: {uuid_formulario}")
+        print("❌ Error confirmando recibo de forma remota:", e)
+        enviar_alerta(f"❌ Error confirmando recibo de forma remota: {uuid_recibo}\n> uuid_formulario: {uuid_formulario}")
+        register_in_txt(f"Error confirmando recibo de forma remota:\n> uuid_recibo: {uuid_recibo}\n> uuid_formulario: {uuid_formulario}", "logs_bcm.txt")
         return jsonify({"error": str(e)}), 500
 
 
@@ -1125,6 +1139,7 @@ def confirm_receipt():
         db.session.rollback()
         print("❌ Error al confirmar recibo:", e)
         enviar_alerta(f"❌ Error al confirmar recibo:\n> uuid:{uuid}\npayment_id:{payment_id}\n> error:{e}")
+        register_in_txt(f"Error al confirmar recibo:\n> uuid:{uuid}\npayment_id:{payment_id}\n> error:{e}", "logs_bcm.txt")
         return jsonify({"error": str(e)}), 500
 
 from reportlab.lib import colors
@@ -1203,6 +1218,7 @@ def save_receipt_to_db(db_session, derecho_fijo, payment_id, status="Pendiente",
     except Exception as e:
         print("❌ Error guardando recibo:", e)
         enviar_alerta(f"❌ Error guardando recibo:\n> Recibo:{receipt_id or 'No generado'}\n> Error: {e}")
+        register_in_txt()
         db_session.rollback()
 
 # FUNCION Q GENERA EL PDF DE LIQ
@@ -1424,10 +1440,12 @@ def generar_liquidaciones():
     except ValueError as e:
         print("Error de validación:", e)
         enviar_alerta(f"Error de validación (/forms/liquidaciones):{e}")
+        register_in_txt()
         return jsonify({"error": str(e)}), 400
     except Exception as e:
         print("Error en el cálculo de liquidación:", e)
         enviar_alerta(f"Error en el calculo de la liquidacion: {e}")
+        register_in_txt()
         return jsonify({"error": str(e)}), 500
     
 
@@ -1678,6 +1696,7 @@ def calcular_liquidacion():
         traceback.print_exc()
         logging.error(f"💥 Error completo: {str(e)}")
         enviar_alerta(f"💥 Error al calular liquidacion(/forms/calcular_liquidacion): {e}")
+        register_in_txt(f"Error al calular liquidacion(/forms/calcular_liquidacion): {e}", "logs_bcm.txt")
         return jsonify({"ok": False, "error": str(e)})
     
 
