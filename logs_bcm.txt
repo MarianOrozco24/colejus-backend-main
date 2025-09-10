@@ -1,0 +1,26 @@
+2025-09-09 18:47:19.603351: Excepción en /forms/qr_bcm: BCM: respuesta inesperada 400: {'message': 'Missing required field: codigoCliente', 'status': 'fail'}
+2025-09-09 18:47:48.534602: Excepción en /forms/qr_bcm: BCM: Error 500 en el servidor. {
+  "message": "Error interno guardando deuda",
+  "status": "fail"
+}
+
+2025-09-09 19:04:55.014210: Excepción en /forms/qr_bcm: BCM: Error 500 en el servidor. {
+  "message": "Error interno guardando deuda",
+  "status": "fail"
+}
+
+2025-09-09 19:05:57.626084: Excepción en /forms/qr_bcm: BCM: Error 500 en el servidor. {
+  "message": "Error interno guardando deuda",
+  "status": "fail"
+}
+
+2025-09-09 19:55:59.439418: Excepción en /forms/qr_bcm: BCM: Error 500 en el servidor. {
+  "message": "Error interno guardando deuda",
+  "status": "fail"
+}
+
+2025-09-09 19:56:21.697050: Excepción en /forms/qr_bcm: BCM: Error 500 en el servidor. {
+  "message": "Error interno guardando deuda",
+  "status": "fail"
+}
+
