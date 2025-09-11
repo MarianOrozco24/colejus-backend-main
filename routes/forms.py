@@ -210,15 +210,13 @@ def generar_qr_bcm():
 
     try:
         # 1) Validamos/normalizamos inputs mínimos
-        required = ["total_depositado", "caratula", "fecha_inicio", "juicio_n"]
+        required = ["total_depositado", "caratula", "fecha_inicio", "juicio_n", "lugar", "fecha", "tasa_justicia", "derecho_fijo_5pc", "parte", "juzgado"]
         faltan = [k for k in required if not data.get(k)]
         if faltan:
             return jsonify({"error": f"Faltan campos: {', '.join(faltan)}"}), 400
 
         # Monto como float y formateo a string si la API lo requiere
         amount = float(str(data["total_depositado"]).replace(",", "."))
-        if amount <= 0:
-            return jsonify({"error": "El monto debe ser mayor a 0."}), 400
 
         # Fecha (ISO). Ajustá al formato exacto que pida BCM si fuese necesario.
         # p.ej. 'YYYY-MM-DD' o 'YYYY-MM-DDTHH:MM:SS'
@@ -232,7 +230,7 @@ def generar_qr_bcm():
         except Exception as e:
             db.session.rollback()
             print("Error al insertar datos en DB", e)
-            return jsonify({"error": "No se pudo registrar el derecho fijo"}), 500
+            return jsonify({"error": "No se pudo registrar sel derecho fijo"}), 500
 
         # 3) Armamos payload para BCM
         preference_data = {
@@ -243,7 +241,6 @@ def generar_qr_bcm():
             "codigoCliente": data.get("juicio_n"),
             "referencia": data.get("referencia"),  
         }
-
         # 4) Llamada firmada a BCM
         qr_res = obtencion_codigo_qr(preference_data, BOLSA_API_KEY, BOLSA_SECRET)
 
@@ -497,7 +494,6 @@ def derecho_fijo_tarjeta():
         register_in_txt(f"Excepcion en forms/derecho_fijo_tarjeta: {e}", "logs_mp.txt")
         db.session.rollback()
         return jsonify({"error": str(e)}), 500
-    
 
 
 
@@ -620,70 +616,77 @@ def check_payment_status(preference_id):
         return jsonify({"error": str(e)}), 500
     
 
-@forms_bp.route('/forms/qr_bcm_payment_confirm', methods=['POST'])
-def confirmacion_de_pago_bcm():
+@forms_bp.route("/forms/bcm/webhook", methods=["POST"])
+def bcm_webhook_oficial():
     """
-    Confirma el pago del recibo ligado a uuid_derecho_fijo.
-    Idempotente: si ya está pagado, devuelve 200 igual.
+    Webhook oficial de la Bolsa.
+    Requisitos (según doc): aceptar JSON y responder 200 con {"ok": true}.
+    Idempotente: si ya está pagado o no se puede actualizar, igual devolvemos ok:true.
     """
-    payload = request.get_json(silent=True) or {}
-    uuid_df = payload.get("uuid_derecho_fijo") or request.args.get("uuid_derecho_fijo")
-
-    if not uuid_df or not _is_valid_uuid(uuid_df):
-        return jsonify({"ok": False, "error": "uuid_derecho_fijo inválido o ausente"}), 400
-
     try:
-        # Si este endpoint fuese webhook de BCM, validar firma aquí (X-SIGNATURE / API-KEY)
+        payload = request.get_json(silent=True) or {}
+        operation_id       = payload.get("operation_id")
+        transaction_id     = payload.get("transaction_id")   # puede venir null
+        cod_cliente        = payload.get("cod_cliente")      # p.ej. juicio_n
+        estado_transaccion = (payload.get("estado_transaccion") or "").lower()
+        ts                 = payload.get("timestamp")
+        notif_type         = payload.get("notification_type")
 
-        # Bloque transaccional; lockea la fila para evitar carreras
-        with db.session.begin():
+        # (Opcional) Validar firma por headers si la Bolsa envía X-SIGNATURE / API-KEY
+        # api_key = request.headers.get("API-KEY")
+        # x_sig  = request.headers.get("X-SIGNATURE")
+        # ... verificar con bcm_signature(BOLSA_CLIENT_ID, BOLSA_SECRET)
+
+        # Mapear el recibo/DF:
+        # 1) si transaction_id es nuestro uuid, lo usamos directo
+        df = None
+        if not operation_id:
+            return jsonify({"ok": False, "error": "operation_id ausente"}), 400
+
+        df = DerechoFijoModel.query.filter_by(uuid=operation_id).first()
+        # 2) si no vino, usamos cod_cliente como "juicio_n"
+        
+        if df:
+            # buscamos el último recibo de ese DF
             receipt = (
-                db.session.query(ReceiptModel)
-                .filter(ReceiptModel.uuid_derecho_fijo == uuid_df)
-                .order_by(desc(ReceiptModel.fecha_pago))   # o el campo que uses
-                .with_for_update(skip_locked=True)
+                ReceiptModel.query
+                .filter_by(uuid_derecho_fijo=df.uuid)
+                .order_by(desc(ReceiptModel.fecha_pago))
                 .first()
             )
+            if receipt:
+                # si la Bolsa dice pagado, marcamos Pagado
+                if estado_transaccion in ("pagado", "aprobado", "approved"):
+                    if (receipt.status or "").lower() != "pagado":
+                        receipt.status = "Pagado"
+                        receipt.fecha_pago = datetime.utcnow()
+                        db.session.add(receipt)
+                        db.session.commit()
+                        print(f"✅ Recibo {receipt.uuid} marcado como Pagado por BCM.")
 
-            if not receipt:
-                return jsonify({"ok": False, "error": "Recibo no encontrado"}), 404
+                    print(f"ℹ️ Recibo {receipt.uuid} ya estaba Pagado, no se actualiza.")
 
-            # Idempotencia
-            if (receipt.status or "").lower() == "pagado":
-                return jsonify({
-                    "ok": True,
-                    "message": "El recibo ya estaba confirmado.",
-                    "uuid_derecho_fijo": uuid_df,
-                    "status": receipt.status,
-                    "fecha_pago": receipt.fecha_pago.isoformat() if receipt.fecha_pago else None,
-                }), 200
+                    return jsonify({"ok": True}), 200
 
-            # (Opcional pero recomendado): consultar a BCM antes de confirmar
-            # estado_ok = consultar_estado_bcm(transaction_id=receipt.payment_id)
-            # if not estado_ok: return jsonify({"ok": False, "error": "BCM no confirmó el pago"}), 409
+                else:
+                    print(f"ℹ️ Recibo {receipt.uuid} no actualizado, estado BCM: {estado_transaccion}")
+                    return jsonify({"ok": False, "error": "El recibo no se pudo actualizar. El status enviado no coincide con los siguientes (pagado, aprobado, approved)"}), 409
+            else:
+                print(f"❌ No se encontró recibo para DerechoFijo {df.uuid} (juicio_n={df.juicio_n})")
+                return jsonify({"ok": False, "error": "No se encontró recibo para el DerechoFijo asociado."}), 404
 
-            receipt.status = "Pagado"
-            receipt.fecha_pago = datetime.utcnow()
-            # (Opcional) guardar datos del callback de BCM:
-            # receipt.gateway_payload = payload  # si lo querés persistir
+                # si vino “fallido”, podrías guardar “Rechazado”/“Fallido” (opcional)
 
-            db.session.add(receipt)
-
-        print("✅ Pago confirmado correctamente para:", uuid_df)
-        return jsonify({
-            "ok": True,
-            "message": "Pago confirmado correctamente.",
-            "uuid_derecho_fijo": uuid_df,
-            "status": "Pagado",
-        }), 200
+        # Respuesta requerida por la Bolsa:
+        return jsonify({"ok": True}), 200
 
     except Exception as e:
-        print("Error en confirmacion_de_pago_bcm:", e)
-        enviar_alerta(f"Error en confirmacion_de_pago_bcm: {e}")
-        register_in_txt(f"Error en confirmacion_de_pago_bcm: {e}")
-        # rollback implícito por el context manager si falló dentro del begin()
-        return jsonify({"ok": False, "error": str(e)}), 500
-    
+        print("❌ Error en bcm_webhook_oficial:", e)
+        register_in_txt(f"Error en bcm_webhook_oficial: {e}", "logs_bcm.txt")
+        # La doc indica que si NO devolvemos ok:true registran fallo y reintentan;
+        # si preferís ser estrictos, podés devolver 500; yo devuelvo 200 para no cortar reintentos.
+        return jsonify({"ok": True}), 200
+
 
 def _is_valid_uuid(value: str) -> bool:
     try:
@@ -1218,7 +1221,7 @@ def save_receipt_to_db(db_session, derecho_fijo, payment_id, status="Pendiente",
     except Exception as e:
         print("❌ Error guardando recibo:", e)
         enviar_alerta(f"❌ Error guardando recibo:\n> Recibo:{receipt_id or 'No generado'}\n> Error: {e}")
-        register_in_txt()
+        register_in_txt(f"Error guardando recibo:\n> Recibo:{receipt_id or 'No generado'}\n> Error: {e}", "logs_bcm.txt")
         db_session.rollback()
 
 # FUNCION Q GENERA EL PDF DE LIQ
@@ -1440,12 +1443,12 @@ def generar_liquidaciones():
     except ValueError as e:
         print("Error de validación:", e)
         enviar_alerta(f"Error de validación (/forms/liquidaciones):{e}")
-        register_in_txt()
+        register_in_txt("Error de validación (/forms/liquidaciones):" + str(e), "logs_bcm.txt")
         return jsonify({"error": str(e)}), 400
     except Exception as e:
         print("Error en el cálculo de liquidación:", e)
         enviar_alerta(f"Error en el calculo de la liquidacion: {e}")
-        register_in_txt()
+        register_in_txt("Error en el cálculo de liquidación: " + str(e), "logs_bcm.txt")
         return jsonify({"error": str(e)}), 500
     
 
