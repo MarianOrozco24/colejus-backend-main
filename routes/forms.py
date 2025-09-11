@@ -210,15 +210,13 @@ def generar_qr_bcm():
 
     try:
         # 1) Validamos/normalizamos inputs mínimos
-        required = ["total_depositado", "caratula", "fecha_inicio", "juicio_n"]
+        required = ["total_depositado", "caratula", "fecha_inicio", "juicio_n", "lugar", "fecha", "tasa_justicia", "derecho_fijo_5pc", "parte", "juzgado"]
         faltan = [k for k in required if not data.get(k)]
         if faltan:
             return jsonify({"error": f"Faltan campos: {', '.join(faltan)}"}), 400
 
         # Monto como float y formateo a string si la API lo requiere
         amount = float(str(data["total_depositado"]).replace(",", "."))
-        if amount <= 0:
-            return jsonify({"error": "El monto debe ser mayor a 0."}), 400
 
         # Fecha (ISO). Ajustá al formato exacto que pida BCM si fuese necesario.
         # p.ej. 'YYYY-MM-DD' o 'YYYY-MM-DDTHH:MM:SS'
@@ -232,7 +230,7 @@ def generar_qr_bcm():
         except Exception as e:
             db.session.rollback()
             print("Error al insertar datos en DB", e)
-            return jsonify({"error": "No se pudo registrar el derecho fijo"}), 500
+            return jsonify({"error": "No se pudo registrar sel derecho fijo"}), 500
 
         # 3) Armamos payload para BCM
         preference_data = {
@@ -243,7 +241,6 @@ def generar_qr_bcm():
             "codigoCliente": data.get("juicio_n"),
             "referencia": data.get("referencia"),  
         }
-
         # 4) Llamada firmada a BCM
         qr_res = obtencion_codigo_qr(preference_data, BOLSA_API_KEY, BOLSA_SECRET)
 
