@@ -3,6 +3,8 @@ __pycache__/
 *.py[cod]
 *$py.class
 
+# auxiliary files
+generar_firma.py
 
 ## Documentacion
 *.pdf/

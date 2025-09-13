@@ -1,5 +1,5 @@
 from datetime import datetime, timedelta
-from flask import Blueprint, app, request, jsonify, send_file
+from flask import Blueprint, app, request, jsonify, send_file, g
 from sqlalchemy import and_, or_
 from config.config import db
 from models import DerechoFijoModel, RateModel, ReceiptModel, PriceDerechoFijo
@@ -10,6 +10,7 @@ from config.config_mp import get_mp_sdk
 import qrcode
 import base64
 from sqlalchemy import desc
+from utils.seguridad_bcm import verify_bcm_webhook_security
 
 from io import BytesIO
 from typing import List, Dict
@@ -249,7 +250,7 @@ def generar_qr_bcm():
             save_receipt_to_db(
                 db.session,
                 derecho_fijo=new_derecho_fijo,
-                payment_id=str(new_derecho_fijo.uuid),
+                payment_id=uuid.uuid4(),  # Generamos un payment_id único
                 status="Pendiente",
                 payment_method="QR BCM"
             )
@@ -624,7 +625,26 @@ def bcm_webhook_oficial():
     Idempotente: si ya está pagado o no se puede actualizar, igual devolvemos ok:true.
     """
     try:
-        payload = request.get_json(silent=True) or {}
+
+        try:
+            # 1) Seguridad (abort 4xx si falla)
+            verify_bcm_webhook_security()
+            
+        except Exception as e:
+            print("❌ Error de seguridad en webhook BCM:", e)
+            register_in_txt(f"Error de seguridad en webhook BCM: {e}", "logs_bcm.txt")
+            enviar_alerta(f"❌ Error de seguridad en webhook BCM: {e}")
+            return jsonify({"ok": False, "error": "Unauthorized"}), 401
+        
+        if hasattr(g, "bcm_raw_body") and g.bcm_raw_body:
+            try:
+                payload = json.loads(g.bcm_raw_body.decode("utf-8"))
+            except Exception:
+                payload = request.get_json(silent=True) or {}
+        else:
+            payload = request.get_json(silent=True) or {}
+
+
         operation_id       = payload.get("operation_id")
         transaction_id     = payload.get("transaction_id")   # puede venir null
         cod_cliente        = payload.get("cod_cliente")      # p.ej. juicio_n
@@ -632,15 +652,12 @@ def bcm_webhook_oficial():
         ts                 = payload.get("timestamp")
         notif_type         = payload.get("notification_type")
 
-        # (Opcional) Validar firma por headers si la Bolsa envía X-SIGNATURE / API-KEY
-        # api_key = request.headers.get("API-KEY")
-        # x_sig  = request.headers.get("X-SIGNATURE")
-        # ... verificar con bcm_signature(BOLSA_CLIENT_ID, BOLSA_SECRET)
-
-        # Mapear el recibo/DF:
-        # 1) si transaction_id es nuestro uuid, lo usamos directo
+    
+        # 1) si operation_id es nuestro uuid, lo usamos directo
         df = None
+
         if not operation_id:
+            print("❌ operation_id ausente en webhook BCM" , operation_id)
             return jsonify({"ok": False, "error": "operation_id ausente"}), 400
 
         df = DerechoFijoModel.query.filter_by(uuid=operation_id).first()
@@ -683,9 +700,13 @@ def bcm_webhook_oficial():
     except Exception as e:
         print("❌ Error en bcm_webhook_oficial:", e)
         register_in_txt(f"Error en bcm_webhook_oficial: {e}", "logs_bcm.txt")
-        # La doc indica que si NO devolvemos ok:true registran fallo y reintentan;
-        # si preferís ser estrictos, podés devolver 500; yo devuelvo 200 para no cortar reintentos.
-        return jsonify({"ok": True}), 200
+        enviar_alerta(f"❌ Error en bcm_webhook_oficial: {e}")
+        return jsonify({"ok": "False",
+                        "error": "InternalError"}), 500
+
+
+
+
 
 
 def _is_valid_uuid(value: str) -> bool:
