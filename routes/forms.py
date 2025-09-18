@@ -662,7 +662,6 @@ def bcm_webhook_oficial():
             return jsonify({"ok": False, "error": "operation_id ausente"}), 400
 
         df = DerechoFijoModel.query.filter_by(uuid=operation_id).first()
-        # 2) si no vino, usamos cod_cliente como "juicio_n"
         
         if df:
             # buscamos el último recibo de ese DF
@@ -696,7 +695,7 @@ def bcm_webhook_oficial():
                 # si vino “fallido”, podrías guardar “Rechazado”/“Fallido” (opcional)
 
         # Respuesta requerida por la Bolsa:
-        return jsonify({"ok": True}), 200
+        return jsonify({"ok": False, "error": "No se encontró recibo para el DerechoFijo asociado."}), 404
 
     except Exception as e:
         print("❌ Error en bcm_webhook_oficial:", e)

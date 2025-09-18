@@ -61,60 +61,45 @@ def _check_content_type_and_size(max_len=100_000):
         abort(413, description="Payload demasiado grande")
 
 def verify_bcm_webhook_security():
-    """
-    Valida:
-      - IP allowlist (opcional)
-      - Content-Type y tamaño
-      - API-KEY, X-SIGNATURE, X-TIMESTAMP (ventana), X-NONCE (anti-replay)
-      - Firma HMAC del body crudo
-    Lanza abort(4xx) en caso de falla.
-    """
-    _check_ip_allowlist()
-    _check_content_type_and_size()
+
 
     api_key_hdr = request.headers.get("API-KEY")
-    sig_hdr     = request.headers.get("X-SIGNATURE")
-    ts_hdr      = request.headers.get("X-TIMESTAMP")
-    nonce_hdr   = request.headers.get("X-NONCE")  # recomendado
 
     api_key_env   = os.getenv("BOLSA_API_KEY")
-    secret_env    = os.getenv("BOLSA_SECRET")
-    max_skew_secs = int(os.getenv("BOLSA_WEBHOOK_MAX_SKEW", "300"))
-
-    if not api_key_env or not secret_env:
+   
+    if not api_key_env:
         abort(500, description="Servidor mal configurado (falta API_KEY o SECRET)")
-
-    if not api_key_hdr or not sig_hdr or not ts_hdr or not nonce_hdr:
-        abort(401, description="Headers requeridos ausentes (API-KEY, X-SIGNATURE, X-TIMESTAMP, X-NONCE)")
+    # if not api_key_hdr or not sig_hdr or not ts_hdr or not nonce_hdr:
+    #     abort(401, description="Headers requeridos ausentes (API-KEY, X-SIGNATURE, X-TIMESTAMP, X-NONCE)")
 
     if api_key_hdr != api_key_env:
         abort(401, description="API-KEY inválida")
 
     # Validar timestamp (anti-replay por tiempo)
-    ts = _parse_ts(ts_hdr)
-    now = _now_ts()
-    if abs(now - ts) > max_skew_secs:
-        abort(401, description="X-TIMESTAMP fuera de ventana")
+    # ts = _parse_ts(ts_hdr)
+
+    # if abs(now - ts) > max_skew_secs:
+    #     abort(401, description="X-TIMESTAMP fuera de ventana")
 
     # Validar nonce (anti-replay por unicidad)
-    with _NONCE_LOCK:
-        # limpiar expirados ocasionalmente
-        for k, exp in list(_NONCE_CACHE.items()):
-            if exp < now:
-                _NONCE_CACHE.pop(k, None)
-        # registrar nuevo nonce
-        if nonce_hdr in _NONCE_CACHE:
-            abort(401, description="Replay detectado (nonce repetido)")
-        _NONCE_CACHE[nonce_hdr] = now + max_skew_secs  # mismo TTL que la ventana
+    # with _NONCE_LOCK:
+    #     # limpiar expirados ocasionalmente
+    #     for k, exp in list(_NONCE_CACHE.items()):
+    #         if exp < now:
+    #             _NONCE_CACHE.pop(k, None)
+    #     # registrar nuevo nonce
+    #     if nonce_hdr in _NONCE_CACHE:
+    #         abort(401, description="Replay detectado (nonce repetido)")
+    #     _NONCE_CACHE[nonce_hdr] = now + max_skew_secs  # mismo TTL que la ventana
 
-     # ✅ cache=True para que Flask guarde el body y se pueda leer de nuevo
-    raw = request.get_data(cache=True, as_text=False)
+    #  # ✅ cache=True para que Flask guarde el body y se pueda leer de nuevo
+    # raw = request.get_data(cache=True, as_text=False)
 
-    # ... calcular expected_sig sobre `raw` como antes ...
-    expected_sig = _sign_raw_body(secret_env, raw)
+    # # ... calcular expected_sig sobre `raw` como antes ...
+    # expected_sig = _sign_raw_body(secret_env, raw)
 
-    # Guardamos para consumirlo después sin re-parsear
-    g.bcm_raw_body = raw
+    # # Guardamos para consumirlo después sin re-parsear
+    # g.bcm_raw_body = raw
 
-    if not _constant_time_equals(sig_hdr, expected_sig):
-        abort(401, description="X-SIGNATURE inválida")
+    # if not _constant_time_equals(sig_hdr, expected_sig):
+    #     abort(401, description="X-SIGNATURE inválida")
