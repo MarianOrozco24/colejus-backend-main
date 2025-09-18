@@ -235,8 +235,7 @@ def generar_qr_bcm():
             return jsonify({"error": "No se pudo registrar sel derecho fijo"}), 500
 
         # 3) Armamos payload para BCM
-        payment_id = str(uuid.uuid4())
-
+        payment_id = ''.join(filter(str.isdigit, str(uuid.uuid4())))[:10]
         preference_data = {
             "amount": f"{amount:.2f}",         
             "description": data["caratula"],
