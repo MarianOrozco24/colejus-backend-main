@@ -235,12 +235,14 @@ def generar_qr_bcm():
             return jsonify({"error": "No se pudo registrar sel derecho fijo"}), 500
 
         # 3) Armamos payload para BCM
+        payment_id = uuid.uuid4()
+
         preference_data = {
             "amount": f"{amount:.2f}",         
             "description": data["caratula"],
             "transactionId": str(new_derecho_fijo.uuid),
             "due": due,
-            "codigoCliente": data.get("juicio_n"),
+            "codigoCliente": payment_id,
             "referencia": data.get("referencia"),  
         }
         # 4) Llamada firmada a BCM
@@ -251,7 +253,7 @@ def generar_qr_bcm():
             save_receipt_to_db(
                 db.session,
                 derecho_fijo=new_derecho_fijo,
-                payment_id=uuid.uuid4(),  # Generamos un payment_id único
+                payment_id=payment_id,  # Generamos un payment_id único
                 status="Pendiente",
                 payment_method="QR BCM"
             )
@@ -646,7 +648,7 @@ def bcm_webhook_oficial():
             payload = request.get_json(silent=True) or {}
 
 
-        operation_id       = payload.get("operation_id")
+        # operation_id       = payload.get("operation_id")
         transaction_id     = payload.get("transaction_id")   # puede venir null
         cod_cliente        = payload.get("cod_cliente")      # p.ej. juicio_n
         estado_transaccion = (payload.get("estado_transaccion") or "").lower()
@@ -657,45 +659,43 @@ def bcm_webhook_oficial():
         # 1) si operation_id es nuestro uuid, lo usamos directo
         df = None
 
-        if not operation_id:
-            print("❌ operation_id ausente en webhook BCM" , operation_id)
-            return jsonify({"ok": False, "error": "operation_id ausente"}), 400
+        if not cod_cliente:
+            print("❌ cod_cliente ausente en webhook BCM" , cod_cliente)
+            return jsonify({"ok": False, "error": "cod_cliente ausente"}), 400
 
-        df = DerechoFijoModel.query.filter_by(uuid=operation_id).first()
+        # df = DerechoFijoModel.query.filter_by(pay=cod_cliente).first()
         
-        if df:
+        
             # buscamos el último recibo de ese DF
-            receipt = (
-                ReceiptModel.query
-                .filter_by(uuid_derecho_fijo=df.uuid)
-                .order_by(desc(ReceiptModel.fecha_pago))
-                .first()
-            )
-            if receipt:
-                # si la Bolsa dice pagado, marcamos Pagado
-                if estado_transaccion in ("pagado", "aprobado", "approved"):
-                    if (receipt.status or "").lower() != "pagado":
-                        receipt.status = "Pagado"
-                        receipt.fecha_pago = datetime.utcnow()
-                        db.session.add(receipt)
-                        db.session.commit()
-                        print(f"✅ Recibo {receipt.uuid} marcado como Pagado por BCM.")
+        receipt = (
+        ReceiptModel.query
+        .filter_by(payment_id=cod_cliente)
+        .order_by(desc(ReceiptModel.fecha_pago))
+        .first()
+        )
+        if receipt:
+        # si la Bolsa dice pagado, marcamos Pagado
+            if estado_transaccion in ("pagado", "aprobado", "approved"):
+                if (receipt.status or "").lower() != "pagado":
+                    receipt.status = "Pagado"
+                    receipt.fecha_pago = datetime.utcnow()
+                    db.session.add(receipt)
+                    db.session.commit()
+                    print(f"✅ Recibo {receipt.uuid} marcado como Pagado por BCM.")
 
-                    print(f"ℹ️ Recibo {receipt.uuid} ya estaba Pagado, no se actualiza.")
+                print(f"ℹ️ Recibo {receipt.uuid} ya estaba Pagado, no se actualiza.")
+                return jsonify({"ok": True}), 200
 
-                    return jsonify({"ok": True}), 200
-
-                else:
-                    print(f"ℹ️ Recibo {receipt.uuid} no actualizado, estado BCM: {estado_transaccion}")
-                    return jsonify({"ok": False, "error": "El recibo no se pudo actualizar. El status enviado no coincide con los siguientes (pagado, aprobado, approved)"}), 409
             else:
-                print(f"❌ No se encontró recibo para DerechoFijo {df.uuid} (juicio_n={df.juicio_n})")
-                return jsonify({"ok": False, "error": "No se encontró recibo para el DerechoFijo asociado."}), 404
+                print(f"ℹ️ Recibo {receipt.uuid} no actualizado, estado BCM: {estado_transaccion}")
+                return jsonify({"ok": False, "error": "El recibo no se pudo actualizar. El status enviado no coincide con los siguientes (pagado, aprobado, approved)"}), 409
+        else:
+            print(f"❌ No se encontró recibo para DerechoFijo {df.uuid} (juicio_n={df.juicio_n})")
+            return jsonify({"ok": False, "error": "No se encontró recibo para el DerechoFijo asociado."}), 404
 
                 # si vino “fallido”, podrías guardar “Rechazado”/“Fallido” (opcional)
 
-        # Respuesta requerida por la Bolsa:
-        return jsonify({"ok": False, "error": "No se encontró recibo para el DerechoFijo asociado."}), 404
+
 
     except Exception as e:
         print("❌ Error en bcm_webhook_oficial:", e)
