@@ -41,3 +41,4 @@
 2025-09-13 11:20:18.677955: Error de seguridad en webhook BCM: Formato inválido de X-TIMESTAMP
 2025-09-13 11:21:23.050422: Error de seguridad en webhook BCM: Formato inválido de X-TIMESTAMP
 2025-09-13 11:21:54.857231: Error de seguridad en webhook BCM: Formato inválido de X-TIMESTAMP
+2025-09-16 16:58:05.752950: Error generando boleta: 400 Bad Request: The browser (or proxy) sent a request that this server could not understand.

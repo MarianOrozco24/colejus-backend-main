@@ -206,12 +206,13 @@ def obtencion_codigo_qr(preference_data: dict, api_key: str, secret: str) -> dic
 
 @forms_bp.route('/forms/derecho_fijo_qr_bcm', methods=['POST'])
 def generar_qr_bcm():
+
     print("📨 Se escogió pago con QR en BCM")
     data = request.json or {}
 
     try:
         # 1) Validamos/normalizamos inputs mínimos
-        required = ["total_depositado", "caratula", "fecha_inicio", "juicio_n", "lugar", "fecha", "tasa_justicia", "derecho_fijo_5pc", "parte", "juzgado"]
+        required = ["total_depositado", "caratula", "fecha_inicio", "juicio_n", "lugar", "fecha", "tasa_justicia", "parte", "juzgado"]
         faltan = [k for k in required if not data.get(k)]
         if faltan:
             return jsonify({"error": f"Faltan campos: {', '.join(faltan)}"}), 400
@@ -285,26 +286,26 @@ def generar_qr_bcm():
 
     
 
-@forms_bp.route('forms/drecho_fijo_pres_bcm')
+@forms_bp.route('forms/bcm/bar-code', methods=['POST'])
 def generar_boleta_bolsa():
     try:
         data = request.json
 
-        # Validar y crear entrada DerechoFijo
+      
         nuevo_df = DerechoFijoModel.from_json(data)
         db.session.add(nuevo_df)
         db.session.commit()
 
         # 📌 Generar código de barras temporal (luego se usará el definitivo)
         # Este será reemplazado por el valor real que nos indique la Bolsa
-        # codigo_barra = f"COD-{nuevo_df.uuid[:12]}"
+        codigo_barra = f"COD-{nuevo_df.uuid}_{nuevo_df.juicio_n}_{nuevo_df.total_depositado}"
 
         # Codigo de barra de la bolsa
-        codigo_barra, qr_payload = get_bolsa_identifiers(nuevo_df)
-
+        # codigo_barra, qr_payload = get_bolsa_identifiers(nuevo_df)
+        print(codigo_barra)
 
         # 📄 Generar PDF con código de barras
-        pdf_buffer = generar_boleta_pdf_con_estilo(nuevo_df, codigo_barra, qr_payload)
+        pdf_buffer = generar_boleta_pdf_con_estilo(nuevo_df, codigo_barra)
 
         # Guardar recibo en estado "Pendiente"
         save_receipt_to_db(
@@ -320,7 +321,7 @@ def generar_boleta_bolsa():
             as_attachment=True,
             download_name=f"boleta_{nuevo_df.juicio_n}.pdf",
             mimetype="application/pdf"
-        )
+        ), 200
 
     except Exception as e:
         db.session.rollback()
