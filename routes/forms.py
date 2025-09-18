@@ -674,7 +674,7 @@ def bcm_webhook_oficial():
         )
         if receipt:
         # si la Bolsa dice pagado, marcamos Pagado
-            if estado_transaccion in ("pagado", "aprobado", "approved"):
+            if estado_transaccion in ("pagado", "aprobado", "approved", "aprobada"):
                 if (receipt.status or "").lower() != "pagado":
                     receipt.status = "Pagado"
                     receipt.fecha_pago = datetime.utcnow()
