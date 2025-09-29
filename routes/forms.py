@@ -1,5 +1,5 @@
 from datetime import datetime, timedelta
-from flask import Blueprint, app, request, jsonify, send_file, g
+from flask import Blueprint, app, request, jsonify, send_file, g, url_for
 from sqlalchemy import and_, or_
 from config.config import db
 from models import DerechoFijoModel, RateModel, ReceiptModel, PriceDerechoFijo
@@ -264,9 +264,11 @@ def generar_qr_bcm():
             "ok": True,
             "payment_method": "QR BCM",
             "uuid": str(new_derecho_fijo.uuid),
+            "payment_id" : payment_id,
             "qr_image_base64": qr_b64,   # <— SIEMPRE esta clave
-        }), 200
 
+        }), 200
+     
     except ValidationError as e:
         print("Error de validación:", e)
         enviar_alerta(f"❌ Error de validación en /forms/qr_bcm: {e}")
@@ -496,6 +498,40 @@ def derecho_fijo_tarjeta():
 
 
 ## Ralizamos las importaciones de los modulos de envio de mail
+
+@forms_bp.route("/forms/receipt-status", methods=["GET"])
+
+def receipt_status():
+    payment_id = request.args.get("payment_id", type=str)
+    if not payment_id:
+        return jsonify({"error": "payment_id requerido"}), 400
+
+    r = (
+        ReceiptModel.query
+        .filter_by(payment_id=payment_id)
+        .order_by(desc(ReceiptModel.created_at))
+        .first()
+    )
+    if not r:
+        return jsonify({"status": "Desconocido"}), 404
+
+    is_paid = (r.status or "").lower().startswith("paga")
+    download_url = None
+    if is_paid:
+        download_url = url_for(
+            "forms_bp.download_receipt",
+            derecho_fijo_uuid=r.uuid_derecho_fijo,
+            _external=True
+        )
+
+    return jsonify({
+        "status": r.status,                 # "Pendiente" / "Pagado"
+        "receipt_number": r.receipt_number,
+        "payment_method": r.payment_method, # "QR BCM"
+        "download_url": download_url,
+    }), 200
+
+
 
 @forms_bp.route('/forms/webhook', methods=['POST'])
 def handle_webhook():
