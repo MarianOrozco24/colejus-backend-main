@@ -18,6 +18,7 @@ class DerechoFijoModel(db.Model):
     parte = db.Column(db.String(255), nullable=True)
     juzgado = db.Column(db.String(255), nullable=True)
     total_depositado = db.Column(db.String(80), nullable=True)
+    email = db.Column(db.String(100), nullable=True)
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
     
     def __repr__(self):
@@ -37,6 +38,7 @@ class DerechoFijoModel(db.Model):
             'parte': self.parte,
             'juzgado': self.juzgado,
             'total_depositado': self.total_depositado,
+            "email": self.email,
             'created': self.created_at.isoformat() if self.created_at else None
         }
 
@@ -64,6 +66,7 @@ class DerechoFijoModel(db.Model):
         derecho_fijo.caratula = json_dict['caratula']
         derecho_fijo.parte = json_dict['parte']
         derecho_fijo.juzgado = json_dict['juzgado']
+        derecho_fijo.email = json_dict['email']
         derecho_fijo.total_depositado = json_dict['total_depositado']
         
         return derecho_fijo

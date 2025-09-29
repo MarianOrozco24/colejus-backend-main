@@ -5,7 +5,7 @@ from config.config import init_db, db, init_jwt, init_cors
 from config.config_mp import init_mp
 from routes import init_app
 from utils.bot import enviar_alerta
-
+from config.config_mail import init_mail
 app = Flask(__name__)
 # CORS(app, supports_credentials=True)
 
@@ -17,7 +17,7 @@ init_mp()
 init_db(app)
 init_jwt(app)
 init_cors(app) # En caso de entrar en modo desarrollador comentar y volver al comando basico de cors
-
+init_mail(app)
 
 # Crea las tablas en la base de datos
 with app.app_context():
