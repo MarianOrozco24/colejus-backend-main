@@ -14,7 +14,6 @@ def _dump_mail_config():
 
 def enviar_mail(destinatario: str, asunto: str, html: str, adjuntos: list = None):
 
-    print("Configuración de correo:",_dump_mail_config())
 
     try:
         msg = Message(
@@ -36,7 +35,7 @@ def enviar_mail(destinatario: str, asunto: str, html: str, adjuntos: list = None
 
     except Exception as e:
         print(f"⚠️ Error al enviar correo a {destinatario}: {e}")
-        # traceback.print_exc()
+        traceback.print_exc()
         return False
     
 
@@ -50,8 +49,9 @@ def enviar_comprobante_pago_por_mail(uuid_derecho_fijo, payment_method, payment_
             return jsonify({"error": "Formulario no encontrado"}), 404
 
         destinatario = derecho_fijo.email
+
         if not destinatario:
-            return jsonify({"error": "El formulario no contiene un email válido"}), 400
+            return jsonify({"error": "El formulario no contiene un email válido"}), 404
 
         backend_url = os.environ.get('BACKEND_URL', 'http://localhost:5000')
         download_link = f"{backend_url}/api/forms/download_receipt?derecho_fijo_uuid={derecho_fijo.uuid}"
