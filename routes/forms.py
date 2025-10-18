@@ -1876,6 +1876,12 @@ def update_derecho_fijo():
         return jsonify({"error": str(e)}), 500
 
 @forms_bp.route("/forms/get_price_derecho_fijo", methods=['GET'])
+
+
+
+
+
+
 def get_price_derecho_fijo():
     now = datetime.now()
     anio = now.year
