@@ -1877,25 +1877,17 @@ def update_derecho_fijo():
 
 @forms_bp.route("/forms/get_price_derecho_fijo", methods=['GET'])
 
-
-
-
-
-
 def get_price_derecho_fijo():
-    now = datetime.now()
-    anio = now.year
-    mes = now.month
-
-    price = PriceDerechoFijo.query.filter(
-        db.extract('year', PriceDerechoFijo.fecha) == anio,
-        db.extract('month', PriceDerechoFijo.fecha) == mes
-    ).all()
-
+    """
+    Obtiene el último precio registrado del derecho fijo.
+    """
+    price = PriceDerechoFijo.query.order_by(
+        PriceDerechoFijo.fecha.desc()).first()
+    
     if not price:
         return jsonify({"error": "La consulta a la base de datos vino vacía"}), 404
 
-    data = [item.to_json() for item in price]
+    data = price.to_json()
 
     return jsonify({"data": data}), 200
 
