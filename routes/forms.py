@@ -4,7 +4,7 @@ from sqlalchemy import and_, or_
 from config.config import db
 from models import DerechoFijoModel, RateModel, ReceiptModel, PriceDerechoFijo
 from utils.decorators import token_required, access_required
-from utils.send_mails import enviar_comprobante_pago_por_mail
+from utils.send_mails import enviar_comprobante_pago_por_mail, enviar_mail
 from flask_jwt_extended import jwt_required
 from utils.errors import ValidationError, register_in_txt
 from config.config_mp import get_mp_sdk
@@ -12,6 +12,9 @@ import qrcode
 import base64
 from sqlalchemy import desc
 from utils.seguridad_bcm import verify_bcm_webhook_security
+from flask import current_app
+from flask_mail import Message
+from config.config_mail import mail
 
 from io import BytesIO
 from typing import List, Dict
@@ -654,6 +657,19 @@ def check_payment_status(preference_id):
         register_in_txt(f"Error checking payment status (/forms/payment_status):  {str(e)}", "logs_mp.txt")
         return jsonify({"error": str(e)}), 500
     
+@forms_bp.route('/forms/envio/mails', methods=['POST'])
+def prueba_envio_mail():
+    """Prueba de envío de correo. Envía un correo a la dirección especificada con el asunto y contenido HTML dados."""
+    data = request.json or {}
+    destinatario = data.get("destinatario", "marianorozcogs@gmail.com")
+    asunto = data.get("asunto", "Prueba de envío de correo")
+    html = data.get("html", "<h1>Este es un correo de prueba</h1><p>Si recibes esto, el envío funcionó correctamente.</p>")
+
+    if enviar_mail(destinatario, asunto, html):
+
+        return jsonify({"message": "Correo enviado correctamente"}), 200
+
+    return jsonify({"error": "Error enviando correo"}), 500
 
 @forms_bp.route("/forms/bcm/webhook", methods=["POST"])
 def bcm_webhook_oficial():
