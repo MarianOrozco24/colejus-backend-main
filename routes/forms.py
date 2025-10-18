@@ -1,9 +1,10 @@
 from datetime import datetime, timedelta
-from flask import Blueprint, app, request, jsonify, send_file, g
+from flask import Blueprint, app, request, jsonify, send_file, g, url_for
 from sqlalchemy import and_, or_
 from config.config import db
 from models import DerechoFijoModel, RateModel, ReceiptModel, PriceDerechoFijo
 from utils.decorators import token_required, access_required
+from utils.send_mails import enviar_comprobante_pago_por_mail
 from flask_jwt_extended import jwt_required
 from utils.errors import ValidationError, register_in_txt
 from config.config_mp import get_mp_sdk
@@ -199,11 +200,6 @@ def obtencion_codigo_qr(preference_data: dict, api_key: str, secret: str) -> dic
         err = {"text": resp.text}
     raise ValueError(f"BCM: respuesta inesperada {resp.status_code}: {err}")
 
-    
-
-
-
-
 @forms_bp.route('/forms/derecho_fijo_qr_bcm', methods=['POST'])
 def generar_qr_bcm():
 
@@ -268,9 +264,11 @@ def generar_qr_bcm():
             "ok": True,
             "payment_method": "QR BCM",
             "uuid": str(new_derecho_fijo.uuid),
+            "payment_id" : payment_id,
             "qr_image_base64": qr_b64,   # <— SIEMPRE esta clave
-        }), 200
 
+        }), 200
+     
     except ValidationError as e:
         print("Error de validación:", e)
         enviar_alerta(f"❌ Error de validación en /forms/qr_bcm: {e}")
@@ -499,6 +497,40 @@ def derecho_fijo_tarjeta():
         return jsonify({"error": str(e)}), 500
 
 
+## Ralizamos las importaciones de los modulos de envio de mail
+
+@forms_bp.route("/forms/receipt-status", methods=["GET"])
+
+def receipt_status():
+    payment_id = request.args.get("payment_id", type=str)
+    if not payment_id:
+        return jsonify({"error": "payment_id requerido"}), 400
+
+    r = (
+        ReceiptModel.query
+        .filter_by(payment_id=payment_id)
+        .order_by(desc(ReceiptModel.created_at))
+        .first()
+    )
+    if not r:
+        return jsonify({"status": "Desconocido"}), 404
+
+    is_paid = (r.status or "").lower().startswith("paga")
+    download_url = None
+    if is_paid:
+        download_url = url_for(
+            "forms_bp.download_receipt",
+            derecho_fijo_uuid=r.uuid_derecho_fijo,
+            _external=True
+        )
+
+    return jsonify({
+        "status": r.status,                 # "Pendiente" / "Pagado"
+        "receipt_number": r.receipt_number,
+        "payment_method": r.payment_method, # "QR BCM"
+        "download_url": download_url,
+    }), 200
+
 
 
 @forms_bp.route('/forms/webhook', methods=['POST'])
@@ -559,6 +591,10 @@ def handle_webhook():
                               "payment_method:", payment_method)
                         
                         save_receipt_to_db(db.session, derecho_fijo, payment_id, status="Pagado", payment_method=payment_method)
+
+                        # Envio de correo con confirmacion de pago
+                        enviar_comprobante_pago_por_mail(derecho_fijo.uuid, payment_method, payment_id)
+                        
                         print("✅ Recibo guardado correctamente.")
 
                     else:
@@ -680,16 +716,25 @@ def bcm_webhook_oficial():
                     receipt.fecha_pago = datetime.utcnow()
                     db.session.add(receipt)
                     db.session.commit()
-                    print(f"✅ Recibo {receipt.uuid} marcado como Pagado por BCM.")
+                    print(f"✅ Recibo {cod_cliente} marcado como Pagado por BCM.")
 
-                print(f"ℹ️ Recibo {receipt.uuid} ya estaba Pagado, no se actualiza.")
+                    ## Envio de mails
+                    enviar_comprobante_pago_por_mail(receipt.uuid_derecho_fijo, receipt.payment_method, cod_cliente)
+
+                    return jsonify({"ok": True}), 200
+
+
+                # si ya estaba Pagado, no se actualiza
+
+                print(f"ℹ️ Recibo {cod_cliente} ya estaba Pagado, no se actualiza.")
+                enviar_comprobante_pago_por_mail(receipt.uuid_derecho_fijo, receipt.payment_method, cod_cliente)
                 return jsonify({"ok": True}), 200
 
             else:
-                print(f"ℹ️ Recibo {receipt.uuid} no actualizado, estado BCM: {estado_transaccion}")
+                print(f"ℹ️ Recibo {cod_cliente} no actualizado, estado BCM: {estado_transaccion}")
                 return jsonify({"ok": False, "error": "El recibo no se pudo actualizar. El status enviado no coincide con los siguientes (pagado, aprobado, approved)"}), 409
         else:
-            print(f"❌ No se encontró recibo para DerechoFijo {df.uuid} (juicio_n={df.juicio_n})")
+            print(f"❌ No se encontró recibo para payment_id {9321747794} (juicio_n={df.juicio_n})")
             return jsonify({"ok": False, "error": "No se encontró recibo para el DerechoFijo asociado."}), 404
 
                 # si vino “fallido”, podrías guardar “Rechazado”/“Fallido” (opcional)
@@ -698,6 +743,7 @@ def bcm_webhook_oficial():
 
     except Exception as e:
         print("❌ Error en bcm_webhook_oficial:", e)
+        traceback.print_exc()
         register_in_txt(f"Error en bcm_webhook_oficial: {e}", "logs_bcm.txt")
         enviar_alerta(f"❌ Error en bcm_webhook_oficial: {e}")
         return jsonify({"ok": "False",
