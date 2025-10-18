@@ -43,3 +43,4 @@ def get_all_receipts():
     except Exception as e:
         print("❌ Error al obtener recibos:", e)
         return jsonify({"error": str(e)}), 500
+    
