@@ -1889,5 +1889,5 @@ def get_price_derecho_fijo():
 
     data = price.to_json()
 
-    return jsonify({"data": data}), 200
+    return jsonify({"data": data['value']}), 200
 
