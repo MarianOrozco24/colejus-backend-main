@@ -292,7 +292,6 @@ def generar_qr_bcm():
 def generar_boleta_bolsa():
     try:
         data = request.json
-
       
         nuevo_df = DerechoFijoModel.from_json(data)
         db.session.add(nuevo_df)
@@ -767,7 +766,44 @@ def bcm_webhook_oficial():
 
 
 
+@forms_bp.route("/forms/bcm-webhook-presencial", methods=["POST"])
+def bcm_webhook_presencial():
+    """Este ese el endpoint al que la bolsa de comercio le va a pegar apenas se realice reciba el pago presencial, la idea es enviarle a la hora
+    de hacer la factura el uuid del derecho fijo que es el que se guarda en la tabla receipt para poder hacer la confirmacion posterior del pago
+    """
+    try:
 
+        # Realizamos la verificacion de seguridad
+        verify_bcm_webhook_security() # Comentado por el momento para no complicar el testing
+
+        data = request.json
+        print("📌 data: ", data)
+
+        uuid = data.get("uuid")
+        status = data.get("status")
+
+        if not _is_valid_uuid(uuid):
+            return jsonify({"error": "uuid no valido"}), 400
+        
+        receipt = ReceiptModel.query.filter_by(uuid_derecho_fijo=uuid).first()
+        if not receipt:
+            return jsonify({"error": "Recibo no encontrado"}), 404
+        
+        receipt.status = status
+        receipt.fecha_pago = datetime.utcnow()
+        db.session.add(receipt)
+        db.session.commit()
+
+        enviar_comprobante_pago_por_mail(receipt.uuid_derecho_fijo, receipt.payment_method, receipt.payment_id)
+
+        print(f"✅ Recibo {uuid} marcado como {status} por BCM.")
+
+        return jsonify({"ok": True}), 200
+        
+    except Exception as e:
+        print("Ocurrio un error al confirma un pago presencial", e)
+        return jsonify({"error al intentar confirmar un pago presencial": str(e)}), 500
+    
 
 
 def _is_valid_uuid(value: str) -> bool:
