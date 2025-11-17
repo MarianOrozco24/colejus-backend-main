@@ -288,7 +288,7 @@ def generar_qr_bcm():
 
     
 
-@forms_bp.route('forms/bcm/bar-code', methods=['POST'])
+@forms_bp.route('/forms/bcm/bar-code', methods=['POST'])
 def generar_boleta_bolsa():
     try:
         data = request.json
@@ -772,36 +772,71 @@ def bcm_webhook_presencial():
     de hacer la factura el uuid del derecho fijo que es el que se guarda en la tabla receipt para poder hacer la confirmacion posterior del pago
     """
     try:
+        cod_barra = None
+        status = None
+        monto_bruto = None
 
         # Realizamos la verificacion de seguridad
         verify_bcm_webhook_security() # Comentado por el momento para no complicar el testing
 
         data = request.json
-        print("📌 data: ", data)
 
-        uuid = data.get("uuid")
+        required = ['codigo_barra', 'status', 'monto_bruto'] 
+
+        faltan = [k for k in required if not data.get(k)]
+
+        if faltan:
+            return jsonify({"error": f"Faltan campos: {', '.join(faltan)}"}), 400
+    
+        
+        cod_barra = data.get("codigo_barra")
         status = data.get("status")
+        monto_bruto = data.get("monto_bruto")
+        fecha_pago = data.get("datetime")
 
-        if not _is_valid_uuid(uuid):
+        # limpiamos el codigo de barra para obtener el uuid del derecho_fijo
+        uuid_derecho_fijo = cod_barra.split("COD-")[1]
+        uuid_derecho_fijo = uuid_derecho_fijo.split("_")[0]
+
+
+        if not _is_valid_uuid(uuid_derecho_fijo):
             return jsonify({"error": "uuid no valido"}), 400
         
-        receipt = ReceiptModel.query.filter_by(uuid_derecho_fijo=uuid).first()
+        receipt = ReceiptModel.query.filter_by(uuid_derecho_fijo=uuid_derecho_fijo).first()
         if not receipt:
             return jsonify({"error": "Recibo no encontrado"}), 404
         
-        receipt.status = status
-        receipt.fecha_pago = datetime.utcnow()
+        
+
+
+        if status.lower().strip() == "completed":
+            # Solamente en caso de que el recibo se haya marcado como Pagado, se envia el mail
+            print("El status del pago es completed, por lo que se envia el mail")
+            receipt.status = "Pagado"
+            receipt.total_depositado = monto_bruto
+            enviar_comprobante_pago_por_mail(receipt.uuid_derecho_fijo, receipt.payment_method, receipt.payment_id)
+            
+        else:
+            receipt.status = status
+
+
+        receipt.fecha_pago = fecha_pago
+
         db.session.add(receipt)
         db.session.commit()
 
-        enviar_comprobante_pago_por_mail(receipt.uuid_derecho_fijo, receipt.payment_method, receipt.payment_id)
-
         print(f"✅ Recibo {uuid} marcado como {status} por BCM.")
+
 
         return jsonify({"ok": True}), 200
         
     except Exception as e:
         print("Ocurrio un error al confirma un pago presencial", e)
+
+        
+        logs_confirmacion_pagos_presenciales(cod_barra, status, monto_bruto)
+
+        enviar_alerta(f"❌ Error al intentar confirmar un pago presencial: {e}")
         return jsonify({"error al intentar confirmar un pago presencial": str(e)}), 500
     
 
@@ -813,7 +848,16 @@ def _is_valid_uuid(value: str) -> bool:
     except Exception:
         return False
 
-
+def logs_confirmacion_pagos_presenciales(uuid_derecho_fijo, status, monto_bruto):
+    with open("logs_confirmacion_pagos_presenciales.txt", "a", encoding="utf-8") as f:
+        f.write(
+            "#########################################\n"
+            f"> Error al confirmar pago presencial:\n"
+            f"  uuid_derecho_fijo: {uuid_derecho_fijo}\n"
+            f"  status: {status}\n"
+            f"  monto_bruto: {monto_bruto}\n"
+            f"  Error: {traceback.format_exc()}\n\n"
+        )
 @forms_bp.route('/forms/download_receipt', methods=['GET'])
 def download_receipt():
     try:

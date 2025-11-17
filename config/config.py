@@ -22,4 +22,4 @@ def init_jwt(app):
     jwt.init_app(app)
 
 def init_cors(app):
-    CORS(app, resources={r"/api/*": {"origins": "*"}}, expose_headers=['Content-Disposition'])
+    CORS(app, resources={r"/api/*": {"origins": "*"}}, expose_headers=['Content-Disposition'])  

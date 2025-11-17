@@ -171,3 +171,5 @@ cython_debug/
 #.idea/
 logs_bcm.txt
 *.json
+
+logs_confirmacion_pagos_presenciales.txt
