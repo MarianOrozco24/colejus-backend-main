@@ -314,7 +314,7 @@ def generar_boleta_bolsa():
             derecho_fijo=nuevo_df, 
             payment_id=codigo_barra,
             status="Pendiente", 
-            payment_method="Boleta Bolsa de Comercio"
+            payment_method="Boleta BCM"
         )
 
         return send_file(
