@@ -69,37 +69,9 @@ def verify_bcm_webhook_security():
    
     if not api_key_env:
         abort(500, description="Servidor mal configurado (falta API_KEY o SECRET)")
-    # if not api_key_hdr or not sig_hdr or not ts_hdr or not nonce_hdr:
-    #     abort(401, description="Headers requeridos ausentes (API-KEY, X-SIGNATURE, X-TIMESTAMP, X-NONCE)")
+
 
     if api_key_hdr != api_key_env:
         abort(401, description="API-KEY inválida")
 
-    # Validar timestamp (anti-replay por tiempo)
-    # ts = _parse_ts(ts_hdr)
-
-    # if abs(now - ts) > max_skew_secs:
-    #     abort(401, description="X-TIMESTAMP fuera de ventana")
-
-    # Validar nonce (anti-replay por unicidad)
-    # with _NONCE_LOCK:
-    #     # limpiar expirados ocasionalmente
-    #     for k, exp in list(_NONCE_CACHE.items()):
-    #         if exp < now:
-    #             _NONCE_CACHE.pop(k, None)
-    #     # registrar nuevo nonce
-    #     if nonce_hdr in _NONCE_CACHE:
-    #         abort(401, description="Replay detectado (nonce repetido)")
-    #     _NONCE_CACHE[nonce_hdr] = now + max_skew_secs  # mismo TTL que la ventana
-
-    #  # ✅ cache=True para que Flask guarde el body y se pueda leer de nuevo
-    # raw = request.get_data(cache=True, as_text=False)
-
-    # # ... calcular expected_sig sobre `raw` como antes ...
-    # expected_sig = _sign_raw_body(secret_env, raw)
-
-    # # Guardamos para consumirlo después sin re-parsear
-    # g.bcm_raw_body = raw
-
-    # if not _constant_time_equals(sig_hdr, expected_sig):
-    #     abort(401, description="X-SIGNATURE inválida")
+  
