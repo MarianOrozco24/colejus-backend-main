@@ -303,7 +303,6 @@ def generar_boleta_bolsa():
 
         # Codigo de barra de la bolsa
         # codigo_barra, qr_payload = get_bolsa_identifiers(nuevo_df)
-        print(codigo_barra)
 
         # 📄 Generar PDF con código de barras
         pdf_buffer = generar_boleta_pdf_con_estilo(nuevo_df, codigo_barra)
@@ -314,7 +313,7 @@ def generar_boleta_bolsa():
             derecho_fijo=nuevo_df, 
             payment_id=codigo_barra,
             status="Pendiente", 
-            payment_method="Boleta Bolsa de Comercio"
+            payment_method="Boleta BCM"
         )
 
         return send_file(
@@ -336,8 +335,6 @@ def generar_boleta_bolsa():
 
 @forms_bp.route('/forms/derecho_fijo_qr', methods=['POST'])
 def derecho_fijo_qr():
-    # print("🔍 Headers:", request.headers)
-    # print("🔍 Raw body:", request.data)
     print("📨 Se escogio pago con QR")
     data = request.json
     try:
@@ -772,6 +769,7 @@ def bcm_webhook_presencial():
     de hacer la factura el uuid del derecho fijo que es el que se guarda en la tabla receipt para poder hacer la confirmacion posterior del pago
     """
     try:
+        # inicializamos las variables para tener en cuenta el caso en el que no el json 
         cod_barra = None
         status = None
         monto_bruto = None
@@ -789,10 +787,13 @@ def bcm_webhook_presencial():
             return jsonify({"error": f"Faltan campos: {', '.join(faltan)}"}), 400
     
         
-        cod_barra = data.get("codigo_barra")
+        cod_barra = data.get("codigo_barra", None)
         status = data.get("status")
-        monto_bruto = data.get("monto_bruto")
-        fecha_pago = data.get("datetime")
+        monto_bruto = data.get("monto_bruto", 0)
+        fecha_pago = data.get("datetime", "")
+
+        if not cod_barra or not isinstance(cod_barra, str):
+            return jsonify({"error": "El codigo de barra es requerido en formato str"}), 400
 
         # limpiamos el codigo de barra para obtener el uuid del derecho_fijo
         uuid_derecho_fijo = cod_barra.split("COD-")[1]
@@ -805,8 +806,6 @@ def bcm_webhook_presencial():
         receipt = ReceiptModel.query.filter_by(uuid_derecho_fijo=uuid_derecho_fijo).first()
         if not receipt:
             return jsonify({"error": "Recibo no encontrado"}), 404
-        
-        
 
 
         if status.lower().strip() == "completed":
@@ -814,8 +813,7 @@ def bcm_webhook_presencial():
             print("El status del pago es completed, por lo que se envia el mail")
             receipt.status = "Pagado"
             receipt.total_depositado = monto_bruto
-            enviar_comprobante_pago_por_mail(receipt.uuid_derecho_fijo, receipt.payment_method, receipt.payment_id)
-            
+            enviar_comprobante_pago_por_mail(receipt.uuid_derecho_fijo, receipt.payment_method, receipt.payment_id)    
         else:
             receipt.status = status
 
@@ -825,17 +823,14 @@ def bcm_webhook_presencial():
         db.session.add(receipt)
         db.session.commit()
 
-        print(f"✅ Recibo {uuid} marcado como {status} por BCM.")
+        print(f"✅ Recibo {uuid_derecho_fijo} marcado como {status} por BCM.")
 
 
         return jsonify({"ok": True}), 200
         
     except Exception as e:
         print("Ocurrio un error al confirma un pago presencial", e)
-
-        
         logs_confirmacion_pagos_presenciales(cod_barra, status, monto_bruto)
-
         enviar_alerta(f"❌ Error al intentar confirmar un pago presencial: {e}")
         return jsonify({"error al intentar confirmar un pago presencial": str(e)}), 500
     
@@ -916,54 +911,9 @@ from reportlab.graphics.shapes import Drawing
 
 ###====== Deprecado, se deja en caso de haber mal funcionamiento con la original =======##
 
-def generar_boleta_pdf_con_codigo(derecho_fijo, codigo_barra):
-    buffer = BytesIO()
-    c = canvas.Canvas(buffer, pagesize=A4)
-
-    # Encabezado
-    c.setFont("Helvetica-Bold", 16)
-    c.drawString(100, 750, "Boleta de Pago Presencial")
-    c.setFont("Helvetica", 12)
-    c.drawString(100, 730, f"Expediente: {derecho_fijo.juicio_n}")
-    c.drawString(100, 710, f"Carátula: {derecho_fijo.caratula}")
-    c.drawString(100, 690, f"Importe a pagar: ${derecho_fijo.total_depositado}")
-
-    # Código de barras
-    barcode = code128.Code128(codigo_barra, barHeight=40)
-    barcode.drawOn(c, 100, 600)
-
-    # Pie de página
-    c.setFont("Helvetica-Oblique", 10)
-    c.drawString(100, 570, "Presente esta boleta en la Bolsa de Comercio para realizar el pago.")
-
-    c.save()
-    buffer.seek(0)
-    return buffer
-
-##=====================================================================================##
-
-from io import BytesIO
-def _make_qr_png_bytes(qr_payload, box_size=8, border=2, err=qrcode.constants.ERROR_CORRECT_M):
-    qr = qrcode.QRCode(version=None, error_correction=err, box_size=box_size, border=border)
-    qr.add_data(qr_payload)
-    qr.make(fit=True)
-    img = qr.make_image(fill_color="black", back_color="white")
-    buf = BytesIO()
-    img.save(buf, format="PNG")
-    buf.seek(0)
-    return buf
-
-
-def generar_boleta_pdf_con_estilo(derecho_fijo, codigo_barra: str, qr_payload: str = None):  # <<<
+def generar_boleta_pdf_con_estilo(derecho_fijo, codigo_barra: str, qr_payload: str = None):
     """
-    Genera un PDF de boleta con:
-      - Encabezado con logo y título
-      - Bloques de Datos del expediente y Datos de pago
-      - Monto destacado
-      - Código de barras centrado + legible
-      - Instrucciones
-      - Línea de corte y Talón para caja (con mini código de barras)
-      - (Opcional) QR grande y mini‑QR en talón si se envía `qr_payload`  # <<<
+    Versión prolija, centrada y con manejo de carátulas largas.
     """
     buffer = BytesIO()
     c = canvas.Canvas(buffer, pagesize=A4)
@@ -979,35 +929,13 @@ def generar_boleta_pdf_con_estilo(derecho_fijo, codigo_barra: str, qr_payload: s
 
     c.setTitle("Boleta de Pago - Bolsa de Comercio")
 
-    # --- Logos ---
-    base_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-    logo_left = os.path.join(base_dir, "utils", "assets", "logo-violeta.png")
-
+    # --- Helpers de dibujo ---
     def try_draw_image(path, x, y, w, h):
         if os.path.exists(path):
             try:
                 c.drawImage(path, x, y, width=w, height=h, preserveAspectRatio=True, mask='auto')
             except:
                 pass
-
-    # --- Encabezado ---
-    header_h = 32 * mm
-    c.setFillColor(colors.white)
-    c.rect(0, height - header_h, width, header_h, fill=1, stroke=0)
-    c.setStrokeColor(LIGHT_BORDER)
-    c.setLineWidth(1)
-    c.line(MARGIN, height - header_h, width - MARGIN, height - header_h)
-    try_draw_image(logo_left, MARGIN, height - 26*mm, 24*mm, 24*mm)
-
-    c.setFillColor(PRIMARY)
-    c.setFont("Helvetica-Bold", 16)
-    c.drawString(MARGIN + 30*mm, height - 14*mm, "COLEGIO PÚBLICO DE ABOGADOS Y PROCURADORES")
-    c.setFont("Helvetica-Bold", 12)
-    c.setFillColor(ACCENT)
-    c.drawString(MARGIN + 30*mm, height - 20*mm, "Segunda Circunscripción Judicial - Mendoza")
-    c.setFillColor(TEXT)
-    c.setFont("Helvetica-Bold", 15)
-    c.drawString(MARGIN, height - header_h - 8*mm, "Boleta de Pago Presencial – Bolsa de Comercio")
 
     def rounded_box(x, y, w, h, stroke=LIGHT_BORDER, fill=None):
         c.setStrokeColor(stroke)
@@ -1023,25 +951,117 @@ def generar_boleta_pdf_con_estilo(derecho_fijo, codigo_barra: str, qr_payload: s
         c.setFillColor(TEXT)
         c.drawString(x + lw, y, value if value is not None else "-")
 
+    def draw_label_value_wrapped(
+        x, y, label, value, max_width,
+        lw=80, font_name="Helvetica", font_size=10,
+        leading=4 * mm, max_lines=4
+    ):
+        """
+        Dibuja label + value en varias líneas (corta por caracteres).
+        """
+        value = (value or "").strip() or "-"
+        # Label
+        c.setFont("Helvetica-Bold", 9)
+        c.setFillColor(colors.HexColor("#6B7280"))
+        c.drawString(x, y, label)
+
+        # Valor envuelto
+        c.setFont(font_name, font_size)
+        c.setFillColor(TEXT)
+
+        start_x = x + lw
+        lines = []
+        current = ""
+
+        for ch in value:
+            test = current + ch
+            if c.stringWidth(test, font_name, font_size) <= max_width:
+                current = test
+            else:
+                if current:
+                    lines.append(current)
+                current = ch
+
+        if current:
+            lines.append(current)
+
+        # Limitar cantidad de líneas
+        if len(lines) > max_lines:
+            lines = lines[:max_lines]
+            if not lines[-1].endswith("..."):
+                lines[-1] = lines[-1] + " ..."
+
+        for i, line in enumerate(lines):
+            c.drawString(start_x, y - i * leading, line)
+
+        return y - (len(lines) - 1) * leading
+
+    # --- Logos ---
+    base_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    logo_left = os.path.join(base_dir, "utils", "assets", "logo-violeta.png")
+
+    # --- Encabezado ---
+    header_h = 32 * mm
+    c.setFillColor(colors.white)
+    c.rect(0, height - header_h, width, header_h, fill=1, stroke=0)
+    c.setStrokeColor(LIGHT_BORDER)
+    c.setLineWidth(1)
+    c.line(MARGIN, height - header_h, width - MARGIN, height - header_h)
+
+    # logo a la izquierda
+    try_draw_image(logo_left, MARGIN + 10, height - 21 * mm, 22 * mm, 22 * mm)
+
+    # textos centrados
+    c.setFillColor(PRIMARY)
+    c.setFont("Helvetica-Bold", 16)
+    c.drawCentredString(width / 2, height - 21 * mm, "COLEGIO PÚBLICO DE ABOGADOS Y PROCURADORES")
+
+    c.setFont("Helvetica-Bold", 12)
+    c.setFillColor(ACCENT)
+    c.drawCentredString(width / 2, height - 27 * mm, "Segunda Circunscripción Judicial - Mendoza")
+
+    c.setFillColor(TEXT)
+    c.setFont("Helvetica-Bold", 15)
+    c.drawCentredString(width / 2, height - header_h - 8 * mm,
+                        "Boleta de Pago Presencial – Bolsa de Comercio")
+
     # --- Bloque Datos del expediente ---
-    top = height - header_h - 14*mm
-    box1_h = 48*mm
-    rounded_box(MARGIN, top - box1_h, width - 2*MARGIN, box1_h)
-    c.setFont("Helvetica-Bold", 11); c.setFillColor(PRIMARY)
-    c.drawString(MARGIN + 6*mm, top - 7*mm, "Datos del expediente")
+    top = height - header_h - 14 * mm
+    box1_h = 52 * mm
+    rounded_box(MARGIN, top - box1_h, width - 2 * MARGIN, box1_h)
+
+    c.setFont("Helvetica-Bold", 11)
+    c.setFillColor(PRIMARY)
+    c.drawString(MARGIN + 6 * mm, top - 7 * mm, "Datos del expediente")
     c.setFillColor(TEXT)
 
-    y = top - 15*mm
-    left_x = MARGIN + 8*mm
-    col2_x = width/2 + 2*mm
+    y = top - 15 * mm
+    left_x = MARGIN + 8 * mm
+    col2_x = width / 2 + 2 * mm
+
     label_value(left_x, y, "N° de Expediente:", getattr(derecho_fijo, "juicio_n", ""))
     label_value(col2_x, y, "Juzgado:", getattr(derecho_fijo, "juzgado", ""))
 
-    y -= 7*mm
-    label_value(left_x, y, "Carátula:", getattr(derecho_fijo, "caratula", ""))
-    label_value(col2_x, y, "Parte:", getattr(derecho_fijo, "parte", ""))
+    # Carátula envuelta
+    y -= 7 * mm
+    caratula = getattr(derecho_fijo, "caratula", "")
+    max_width_caratula = (width - 2 * MARGIN) - (left_x + 80)
+    y = draw_label_value_wrapped(
+        x=left_x,
+        y=y,
+        label="Carátula:",
+        value=caratula,
+        max_width=max_width_caratula,
+        lw=80,
+        font_size=10,
+        leading=4 * mm,
+        max_lines=4
+    )
 
-    y -= 7*mm
+    y -= 5 * mm
+    label_value(left_x, y, "Parte:", getattr(derecho_fijo, "parte", ""))
+
+    y -= 7 * mm
     fi = getattr(derecho_fijo, "fecha_inicio", None)
     fv = getattr(derecho_fijo, "fecha", None)
     fi_str = fi.strftime("%d/%m/%Y") if fi else "-"
@@ -1049,120 +1069,360 @@ def generar_boleta_pdf_con_estilo(derecho_fijo, codigo_barra: str, qr_payload: s
     label_value(left_x, y, "Fecha Inicio:", fi_str)
     label_value(col2_x, y, "Fecha Vencimiento:", fv_str)
 
-    y -= 7*mm
+    y -= 7 * mm
     label_value(left_x, y, "Lugar:", getattr(derecho_fijo, "lugar", ""))
 
     # --- Bloque Datos de pago + Monto ---
-    box2_h = 34*mm
-    top2 = top - box1_h - 6*mm
-    rounded_box(MARGIN, top2 - box2_h, width - 2*MARGIN, box2_h)
-    c.setFont("Helvetica-Bold", 11); c.setFillColor(PRIMARY)
-    c.drawString(MARGIN + 6*mm, top2 - 7*mm, "Datos de pago")
+    box2_h = 34 * mm
+    top2 = top - box1_h - 6 * mm
+    rounded_box(MARGIN, top2 - box2_h, width - 2 * MARGIN, box2_h)
+
+    c.setFont("Helvetica-Bold", 11)
+    c.setFillColor(PRIMARY)
+    c.drawString(MARGIN + 6 * mm, top2 - 7 * mm, "Datos de pago")
     c.setFillColor(TEXT)
 
-    y2 = top2 - 15*mm
-    label_value(MARGIN + 8*mm, y2, "Tasa de justicia:", f"$ {getattr(derecho_fijo, 'tasa_justicia', '0')}")
-    label_value(width/2 - 9*mm, y2, "Derecho fijo 5%:", f"$ {getattr(derecho_fijo, 'derecho_fijo_5pc', '0')}")
+    y2 = top2 - 15 * mm
+    label_value(MARGIN + 8 * mm, y2, "Tasa de justicia:", f"$ {getattr(derecho_fijo, 'tasa_justicia', '0')}")
+    label_value(width / 2 - 9 * mm, y2, "Derecho fijo 5%:", f"$ {float(getattr(derecho_fijo, 'total_depositado', '0')) * 0.05}")
 
-    amount_box_w = 70*mm
-    amount_box_h = 18*mm
+    amount_box_w = 70 * mm
+    amount_box_h = 18 * mm
     amount_box_x = width - MARGIN - amount_box_w - 4
-    amount_box_y = top2 - amount_box_h - 10*mm
+    amount_box_y = top2 - amount_box_h - 10 * mm
     rounded_box(amount_box_x, amount_box_y, amount_box_w, amount_box_h, stroke=ACCENT)
-    c.setFillColor(ACCENT); c.setFont("Helvetica-Bold", 10)
-    c.drawString(amount_box_x + 6, amount_box_y + amount_box_h - 6*mm, "Importe a pagar")
-    c.setFillColor(TEXT); c.setFont("Helvetica-Bold", 14)
-    c.drawRightString(amount_box_x + amount_box_w - 6, amount_box_y + 6, f"$ {getattr(derecho_fijo, 'total_depositado', '0')}")
 
-    # --- Código de barras (principal) ---
-    top3 = top2 - box2_h - 8*mm
-    barcode = code128.Code128(codigo_barra, barHeight=18*mm, barWidth=0.5)
+    c.setFillColor(ACCENT)
+    c.setFont("Helvetica-Bold", 10)
+    c.drawString(amount_box_x + 6, amount_box_y + amount_box_h - 6 * mm, "Importe a pagar")
+
+    c.setFillColor(TEXT)
+    c.setFont("Helvetica-Bold", 14)
+    c.drawRightString(amount_box_x + amount_box_w - 6, amount_box_y + 6,
+                      f"$ {getattr(derecho_fijo, 'total_depositado', '0')}")
+
+    # --- Código de barras (principal) centrado ---
+    top3 = top2 - box2_h - 8 * mm
+    barcode = code128.Code128(codigo_barra, barHeight=18 * mm, barWidth=0.5)
     bw = barcode.width
-    bx = (width - bw) / 7
-    by = top3 - 17*mm
+    bx = (width - bw) / 2
+    by = top3 - 17 * mm
     barcode.drawOn(c, bx, by)
-    c.setFont("Helvetica", 9); c.setFillColor(colors.HexColor("#4B5563"))
-    c.drawCentredString(width/3.5, by - 4*mm, codigo_barra)
 
-    # --- QR grande (opcional) ---  # <<<
-    if qr_payload:
-        try:
-            qr_buf = _make_qr_png_bytes(qr_payload, box_size=8, border=2)
-            qr_img = ImageReader(qr_buf)
-            qr_size = 25 * mm                     # recomendado ≥ 30–35 mm
-            qr_x = width - 30*mm - qr_size        # margen derecho
-            qr_y = by + (mm - 10)                     # sobre el barcode
-            c.drawImage(qr_img, qr_x, qr_y, width=qr_size, height=qr_size, preserveAspectRatio=True, mask='auto')
-            c.setFont("Helvetica", 8); c.setFillColor(colors.HexColor("#6B7280"))
-            c.drawCentredString(qr_x + qr_size/2, qr_y - 10, "Escanear en caja")
-        except Exception as e:
-            print("⚠️ Error dibujando QR:", e)
+    c.setFont("Helvetica", 9)
+    c.setFillColor(colors.HexColor("#4B5563"))
+    c.drawCentredString(width / 2, by - 4 * mm, codigo_barra)
 
     # --- Instrucciones ---
-    instr_top = by - 14*mm
-    rounded_box(MARGIN, instr_top - 22*mm, width - 2*MARGIN, 28*mm)
-    c.setFont("Helvetica-Bold", 10); c.setFillColor(PRIMARY)
-    c.drawString(MARGIN + 6*mm, instr_top - 1*mm, "Instrucciones")
-    c.setFillColor(TEXT); c.setFont("Helvetica", 9)
+    instr_top = by - 14 * mm
+    rounded_box(MARGIN, instr_top - 22 * mm, width - 2 * MARGIN, 28 * mm)
+
+    c.setFont("Helvetica-Bold", 10)
+    c.setFillColor(PRIMARY)
+    c.drawString(MARGIN + 6 * mm, instr_top - 1 * mm, "Instrucciones")
+
+    c.setFillColor(TEXT)
+    c.setFont("Helvetica", 9)
     lines = [
         "• Presentar esta boleta en la Bolsa de Comercio para efectuar el pago.",
         "• La boleta es válida hasta la fecha de vencimiento indicada.",
         "• Conserve el talón inferior sellado como comprobante de pago.",
     ]
-    yy = instr_top - 6*mm
+    yy = instr_top - 6 * mm
     for line in lines:
-        c.drawString(MARGIN + 8*mm, yy, line)
-        yy -= 5*mm
+        c.drawString(MARGIN + 8 * mm, yy, line)
+        yy -= 5 * mm
 
     # --- Línea de corte ---
-    cut_y = instr_top - 26*mm
+    cut_y = instr_top - 26 * mm
     c.setStrokeColor(colors.HexColor("#9CA3AF"))
-    c.setDash(2, 2); c.line(MARGIN, cut_y, width - MARGIN, cut_y); c.setDash()
-    c.setFont("Helvetica", 8); c.setFillColor(colors.HexColor("#6B7280"))
-    c.drawCentredString(width/2, cut_y - 4*mm, "— — — — — — — — — — — —  Corte aquí  — — — — — — — — — — — —")
+    c.setDash(2, 2)
+    c.line(MARGIN, cut_y, width - MARGIN, cut_y)
+    c.setDash()
+
+    c.setFont("Helvetica", 8)
+    c.setFillColor(colors.HexColor("#6B7280"))
+    c.drawCentredString(width / 2, cut_y - 4 * mm,
+                        "— — — — — — — — — — — —  Corte aquí  — — — — — — — — — — — —")
 
     # --- Talón para caja ---
-    slip_h = 40*mm
-    slip_y = cut_y - slip_h - 6*mm
-    rounded_box(MARGIN, slip_y, width - 2*MARGIN, slip_h)
+    slip_h = 40 * mm
+    slip_y = cut_y - slip_h - 6 * mm
+    rounded_box(MARGIN, slip_y, width - 2 * MARGIN, slip_h)
 
-    c.setFillColor(PRIMARY); c.setFont("Helvetica-Bold", 10)
-    c.drawString(MARGIN + 6*mm, slip_y + slip_h - 7*mm, "Talón para caja – Bolsa de Comercio")
-    c.setFillColor(TEXT); c.setFont("Helvetica", 9)
+    c.setFillColor(PRIMARY)
+    c.setFont("Helvetica-Bold", 10)
+    c.drawString(MARGIN + 6 * mm, slip_y + slip_h - 7 * mm,
+                 "Talón para caja – Bolsa de Comercio")
 
-    ty = slip_y + slip_h - 14*mm
-    label_value(MARGIN + 8*mm, ty, "Expediente:", getattr(derecho_fijo, "juicio_n", ""))
-    ty -= 6*mm
-    label_value(MARGIN + 8*mm, ty, "Carátula:", (getattr(derecho_fijo, "caratula", "") or "")[:45])
-    ty -= 6*mm
-    label_value(MARGIN + 8*mm, ty, "Importe:", f"$ {getattr(derecho_fijo, 'total_depositado', '0')}")
+    c.setFillColor(TEXT)
+    c.setFont("Helvetica", 9)
 
-    # mini código de barras
-    mini = code128.Code128(codigo_barra, barHeight=12*mm, barWidth=0.45)
+    ty = slip_y + slip_h - 14 * mm
+    label_value(MARGIN + 8 * mm, ty, "Expediente:", getattr(derecho_fijo, "juicio_n", ""))
+    ty -= 6 * mm
+
+    # mini código de barras (lo calculamos antes para saber dónde empieza)
+    mini = code128.Code128(codigo_barra, barHeight=12 * mm, barWidth=0.45)
     mini_x = width - MARGIN - mini.width - 10
-    mini_y = slip_y + 8*mm
+    mini_y = slip_y + 8 * mm
+
+    # Carátula envuelta, con ancho máximo hasta antes del barcode
+    caratula = getattr(derecho_fijo, "caratula", "")
+    lw_caratula = 70
+    padding = 5
+    text_start_x = MARGIN + 8 * mm + lw_caratula
+    max_width_caratula_talon = max(40, mini_x - padding - text_start_x)
+
+    ty = draw_label_value_wrapped(
+        x=MARGIN + 8 * mm,
+        y=ty,
+        label="Carátula:",
+        value=caratula,
+        max_width=max_width_caratula_talon,
+        lw=lw_caratula,
+        font_size=8,
+        leading=3.5 * mm,
+        max_lines=3
+    )
+
+    ty -= 5 * mm
+    label_value(MARGIN + 8 * mm, ty, "Importe:", f"$ {getattr(derecho_fijo, 'total_depositado', '0')}")
+
+    # ahora sí dibujamos el mini-barcode
     mini.drawOn(c, mini_x, mini_y)
-    c.setFont("Helvetica", 8); c.setFillColor(colors.HexColor("#4B5563"))
+    c.setFont("Helvetica", 8)
+    c.setFillColor(colors.HexColor("#4B5563"))
     c.drawRightString(mini_x + mini.width - 15, mini_y - 10, codigo_barra)
 
-    # # mini‑QR en talón (opcional)  # <<<
-    # if qr_payload:
-    #     try:
-    #         mini_qr_buf = _make_qr_png_bytes(qr_payload, box_size=5, border=2)
-    #         mini_qr_img = ImageReader(mini_qr_buf)
-    #         mini_qr_size = 26 * mm
-    #         mini_qr_x = mini_x - 6 - mini_qr_size    # a la izquierda del mini-barcode
-    #         mini_qr_y = slip_y + 7*mm
-    #         c.drawImage(mini_qr_img, mini_qr_x, mini_qr_y, width=mini_qr_size, height=mini_qr_size, preserveAspectRatio=True, mask='auto')
-    #     except Exception as e:
-    #         print("⚠️ Error dibujando mini‑QR:", e)
-
-    # Footer
-    c.setFillColor(colors.HexColor("#9CA3AF")); c.setFont("Helvetica", 8)
-    c.drawCentredString(width/2, 10*mm, "Colegio Público de Abogados y Procuradores – 2° Circ. Judicial (Mendoza)")
-
-    c.showPage(); c.save(); buffer.seek(0)
+    # --- Cerrar PDF correctamente ---
+    c.showPage()
+    c.save()
+    buffer.seek(0)
     return buffer
+
+
+from io import BytesIO
+def _make_qr_png_bytes(qr_payload, box_size=8, border=2, err=qrcode.constants.ERROR_CORRECT_M):
+    qr = qrcode.QRCode(version=None, error_correction=err, box_size=box_size, border=border)
+    qr.add_data(qr_payload)
+    qr.make(fit=True)
+    img = qr.make_image(fill_color="black", back_color="white")
+    buf = BytesIO()
+    img.save(buf, format="PNG")
+    buf.seek(0)
+    return buf
+
+
+# def generar_boleta_pdf_con_estilo(derecho_fijo, codigo_barra: str, qr_payload: str = None):  # <<<
+#     """
+#     Genera un PDF de boleta con:
+#       - Encabezado con logo y título
+#       - Bloques de Datos del expediente y Datos de pago
+#       - Monto destacado
+#       - Código de barras centrado + legible
+#       - Instrucciones
+#       - Línea de corte y Talón para caja (con mini código de barras)
+#       - (Opcional) QR grande y mini‑QR en talón si se envía `qr_payload`  # <<<
+#     """
+#     buffer = BytesIO()
+#     c = canvas.Canvas(buffer, pagesize=A4)
+#     width, height = A4
+
+#     # --- Config ---
+#     MARGIN = 15 * mm
+#     BOX_RADIUS = 6
+#     LIGHT_BORDER = colors.HexColor("#E5E7EB")
+#     PRIMARY = colors.HexColor("#06092E")
+#     ACCENT = colors.HexColor("#4F46E5")
+#     TEXT = colors.HexColor("#111827")
+
+#     c.setTitle("Boleta de Pago - Bolsa de Comercio")
+
+#     # --- Logos ---
+#     base_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+#     logo_left = os.path.join(base_dir, "utils", "assets", "logo-violeta.png")
+
+#     def try_draw_image(path, x, y, w, h):
+#         if os.path.exists(path):
+#             try:
+#                 c.drawImage(path, x, y, width=w, height=h, preserveAspectRatio=True, mask='auto')
+#             except:
+#                 pass
+
+#     # --- Encabezado ---
+#     header_h = 32 * mm
+#     c.setFillColor(colors.white)
+#     c.rect(0, height - header_h, width, header_h, fill=1, stroke=0)
+#     c.setStrokeColor(LIGHT_BORDER)
+#     c.setLineWidth(1)
+#     c.line(MARGIN, height - header_h, width - MARGIN, height - header_h)
+#     try_draw_image(logo_left, MARGIN, height - 26*mm, 24*mm, 24*mm)
+
+#     c.setFillColor(PRIMARY)
+#     c.setFont("Helvetica-Bold", 16)
+#     c.drawString(MARGIN + 30*mm, height - 14*mm, "COLEGIO PÚBLICO DE ABOGADOS Y PROCURADORES")
+#     c.setFont("Helvetica-Bold", 12)
+#     c.setFillColor(ACCENT)
+#     c.drawString(MARGIN + 30*mm, height - 20*mm, "Segunda Circunscripción Judicial - Mendoza")
+#     c.setFillColor(TEXT)
+#     c.setFont("Helvetica-Bold", 15)
+#     c.drawString(MARGIN, height - header_h - 8*mm, "Boleta de Pago Presencial – Bolsa de Comercio")
+
+#     def rounded_box(x, y, w, h, stroke=LIGHT_BORDER, fill=None):
+#         c.setStrokeColor(stroke)
+#         c.setFillColor(fill if fill else colors.white)
+#         c.setLineWidth(1)
+#         c.roundRect(x, y, w, h, BOX_RADIUS, stroke=1, fill=1)
+
+#     def label_value(x, y, label, value, lw=110):
+#         c.setFont("Helvetica-Bold", 9)
+#         c.setFillColor(colors.HexColor("#6B7280"))
+#         c.drawString(x, y, label)
+#         c.setFont("Helvetica", 10)
+#         c.setFillColor(TEXT)
+#         c.drawString(x + lw, y, value if value is not None else "-")
+
+#     # --- Bloque Datos del expediente ---
+#     top = height - header_h - 14*mm
+#     box1_h = 48*mm
+#     rounded_box(MARGIN, top - box1_h, width - 2*MARGIN, box1_h)
+#     c.setFont("Helvetica-Bold", 11); c.setFillColor(PRIMARY)
+#     c.drawString(MARGIN + 6*mm, top - 7*mm, "Datos del expediente")
+#     c.setFillColor(TEXT)
+
+#     y = top - 15*mm
+#     left_x = MARGIN + 8*mm
+#     col2_x = width/2 + 2*mm
+#     label_value(left_x, y, "N° de Expediente:", getattr(derecho_fijo, "juicio_n", ""))
+#     label_value(col2_x, y, "Juzgado:", getattr(derecho_fijo, "juzgado", ""))
+
+#     y -= 7*mm
+#     label_value(left_x, y, "Carátula:", getattr(derecho_fijo, "caratula", ""))
+#     label_value(col2_x, y, "Parte:", getattr(derecho_fijo, "parte", ""))
+
+#     y -= 7*mm
+#     fi = getattr(derecho_fijo, "fecha_inicio", None)
+#     fv = getattr(derecho_fijo, "fecha", None)
+#     fi_str = fi.strftime("%d/%m/%Y") if fi else "-"
+#     fv_str = fv.strftime("%d/%m/%Y") if fv else "-"
+#     label_value(left_x, y, "Fecha Inicio:", fi_str)
+#     label_value(col2_x, y, "Fecha Vencimiento:", fv_str)
+
+#     y -= 7*mm
+#     label_value(left_x, y, "Lugar:", getattr(derecho_fijo, "lugar", ""))
+
+#     # --- Bloque Datos de pago + Monto ---
+#     box2_h = 34*mm
+#     top2 = top - box1_h - 6*mm
+#     rounded_box(MARGIN, top2 - box2_h, width - 2*MARGIN, box2_h)
+#     c.setFont("Helvetica-Bold", 11); c.setFillColor(PRIMARY)
+#     c.drawString(MARGIN + 6*mm, top2 - 7*mm, "Datos de pago")
+#     c.setFillColor(TEXT)
+
+#     y2 = top2 - 15*mm
+#     label_value(MARGIN + 8*mm, y2, "Tasa de justicia:", f"$ {getattr(derecho_fijo, 'tasa_justicia', '0')}")
+#     label_value(width/2 - 9*mm, y2, "Derecho fijo 5%:", f"$ {getattr(derecho_fijo, 'derecho_fijo_5pc', '0')}")
+
+#     amount_box_w = 70*mm
+#     amount_box_h = 18*mm
+#     amount_box_x = width - MARGIN - amount_box_w - 4
+#     amount_box_y = top2 - amount_box_h - 10*mm
+#     rounded_box(amount_box_x, amount_box_y, amount_box_w, amount_box_h, stroke=ACCENT)
+#     c.setFillColor(ACCENT); c.setFont("Helvetica-Bold", 10)
+#     c.drawString(amount_box_x + 6, amount_box_y + amount_box_h - 6*mm, "Importe a pagar")
+#     c.setFillColor(TEXT); c.setFont("Helvetica-Bold", 14)
+#     c.drawRightString(amount_box_x + amount_box_w - 6, amount_box_y + 6, f"$ {getattr(derecho_fijo, 'total_depositado', '0')}")
+
+#     # --- Código de barras (principal) ---
+#     top3 = top2 - box2_h - 8*mm
+#     barcode = code128.Code128(codigo_barra, barHeight=18*mm, barWidth=0.5)
+#     bw = barcode.width
+#     bx = (width - bw) / 7
+#     by = top3 - 17*mm
+#     barcode.drawOn(c, bx, by)
+#     c.setFont("Helvetica", 9); c.setFillColor(colors.HexColor("#4B5563"))
+#     c.drawCentredString(width/3.5, by - 4*mm, codigo_barra)
+
+#     # --- QR grande (opcional) ---  # <<<
+#     if qr_payload:
+#         try:
+#             qr_buf = _make_qr_png_bytes(qr_payload, box_size=8, border=2)
+#             qr_img = ImageReader(qr_buf)
+#             qr_size = 25 * mm                     # recomendado ≥ 30–35 mm
+#             qr_x = width - 30*mm - qr_size        # margen derecho
+#             qr_y = by + (mm - 10)                     # sobre el barcode
+#             c.drawImage(qr_img, qr_x, qr_y, width=qr_size, height=qr_size, preserveAspectRatio=True, mask='auto')
+#             c.setFont("Helvetica", 8); c.setFillColor(colors.HexColor("#6B7280"))
+#             c.drawCentredString(qr_x + qr_size/2, qr_y - 10, "Escanear en caja")
+#         except Exception as e:
+#             print("⚠️ Error dibujando QR:", e)
+
+#     # --- Instrucciones ---
+#     instr_top = by - 14*mm
+#     rounded_box(MARGIN, instr_top - 22*mm, width - 2*MARGIN, 28*mm)
+#     c.setFont("Helvetica-Bold", 10); c.setFillColor(PRIMARY)
+#     c.drawString(MARGIN + 6*mm, instr_top - 1*mm, "Instrucciones")
+#     c.setFillColor(TEXT); c.setFont("Helvetica", 9)
+#     lines = [
+#         "• Presentar esta boleta en la Bolsa de Comercio para efectuar el pago.",
+#         "• La boleta es válida hasta la fecha de vencimiento indicada.",
+#         "• Conserve el talón inferior sellado como comprobante de pago.",
+#     ]
+#     yy = instr_top - 6*mm
+#     for line in lines:
+#         c.drawString(MARGIN + 8*mm, yy, line)
+#         yy -= 5*mm
+
+#     # --- Línea de corte ---
+#     cut_y = instr_top - 26*mm
+#     c.setStrokeColor(colors.HexColor("#9CA3AF"))
+#     c.setDash(2, 2); c.line(MARGIN, cut_y, width - MARGIN, cut_y); c.setDash()
+#     c.setFont("Helvetica", 8); c.setFillColor(colors.HexColor("#6B7280"))
+#     c.drawCentredString(width/2, cut_y - 4*mm, "— — — — — — — — — — — —  Corte aquí  — — — — — — — — — — — —")
+
+#     # --- Talón para caja ---
+#     slip_h = 40*mm
+#     slip_y = cut_y - slip_h - 6*mm
+#     rounded_box(MARGIN, slip_y, width - 2*MARGIN, slip_h)
+
+#     c.setFillColor(PRIMARY); c.setFont("Helvetica-Bold", 10)
+#     c.drawString(MARGIN + 6*mm, slip_y + slip_h - 7*mm, "Talón para caja – Bolsa de Comercio")
+#     c.setFillColor(TEXT); c.setFont("Helvetica", 9)
+
+#     ty = slip_y + slip_h - 14*mm
+#     label_value(MARGIN + 8*mm, ty, "Expediente:", getattr(derecho_fijo, "juicio_n", ""))
+#     ty -= 6*mm
+#     label_value(MARGIN + 8*mm, ty, "Carátula:", (getattr(derecho_fijo, "caratula", "") or "")[:45])
+#     ty -= 6*mm
+#     label_value(MARGIN + 8*mm, ty, "Importe:", f"$ {getattr(derecho_fijo, 'total_depositado', '0')}")
+
+#     # mini código de barras
+#     mini = code128.Code128(codigo_barra, barHeight=12*mm, barWidth=0.45)
+#     mini_x = width - MARGIN - mini.width - 10
+#     mini_y = slip_y + 8*mm
+#     mini.drawOn(c, mini_x, mini_y)
+#     c.setFont("Helvetica", 8); c.setFillColor(colors.HexColor("#4B5563"))
+#     c.drawRightString(mini_x + mini.width - 15, mini_y - 10, codigo_barra)
+
+#     # # mini‑QR en talón (opcional)  # <<<
+#     # if qr_payload:
+#     #     try:
+#     #         mini_qr_buf = _make_qr_png_bytes(qr_payload, box_size=5, border=2)
+#     #         mini_qr_img = ImageReader(mini_qr_buf)
+#     #         mini_qr_size = 26 * mm
+#     #         mini_qr_x = mini_x - 6 - mini_qr_size    # a la izquierda del mini-barcode
+#     #         mini_qr_y = slip_y + 7*mm
+#     #         c.drawImage(mini_qr_img, mini_qr_x, mini_qr_y, width=mini_qr_size, height=mini_qr_size, preserveAspectRatio=True, mask='auto')
+#     #     except Exception as e:
+#     #         print("⚠️ Error dibujando mini‑QR:", e)
+
+#     # Footer
+#     c.setFillColor(colors.HexColor("#9CA3AF")); c.setFont("Helvetica", 8)
+#     c.drawCentredString(width/2, 10*mm, "Colegio Público de Abogados y Procuradores – 2° Circ. Judicial (Mendoza)")
+
+#     c.showPage(); c.save(); buffer.seek(0)
+#     return buffer
 
 
 def generate_receipt_pdf( payment_data, derecho_fijo):
