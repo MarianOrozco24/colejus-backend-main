@@ -817,8 +817,9 @@ def bcm_webhook_presencial():
         else:
             receipt.status = status
 
-
-        receipt.fecha_pago = fecha_pago
+        if len(fecha_pago) > 0:
+            fecha_limpia = fecha_pago.split("T")[0]
+            receipt.fecha_pago = fecha_pago
 
         db.session.add(receipt)
         db.session.commit()
