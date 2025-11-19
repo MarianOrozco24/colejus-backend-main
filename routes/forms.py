@@ -781,7 +781,7 @@ def bcm_webhook_presencial():
 
         required = ['codigo_barra', 'status', 'monto_bruto'] 
 
-        faltan = [k for k in required if not data.get(k)]
+        faltan = [k for k in required if k not in data] 
 
         if faltan:
             return jsonify({"error": f"Faltan campos: {', '.join(faltan)}"}), 400
@@ -804,6 +804,7 @@ def bcm_webhook_presencial():
             return jsonify({"error": "uuid no valido"}), 400
         
         receipt = ReceiptModel.query.filter_by(uuid_derecho_fijo=uuid_derecho_fijo).first()
+
         if not receipt:
             return jsonify({"error": "Recibo no encontrado"}), 404
 
