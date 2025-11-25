@@ -1617,7 +1617,7 @@ def save_receipt_to_db(db_session, derecho_fijo, payment_id, status="Pendiente",
                 existing_receipt.status = status
                 existing_receipt.fecha_pago = datetime.now()
                 db_session.commit()
-                print(f"🔁 Recibo actualizado: {existing_receipt.receipt_number} → status: {status}")
+                print(f"🔁 Recibo: {existing_receipt.receipt_number} → status: {status}")
             else:
                 print("ℹ️ Recibo ya existente con mismo estado. No se modifica.")
             return
@@ -1948,18 +1948,19 @@ def scroll_randomly(page):
     page.evaluate("window.scrollBy(0, {})".format(random.randint(100, 300)))
     human_delay(0.3, 1.0)
 
-# Endpoint
+
 @forms_bp.route('/forms/calcular_liquidacion', methods=['POST'])
 def calcular_liquidacion():
     data = request.json
     logging.info(f"📨 Datos recibidos: {data}")
+    print(data)
+
     concepto = data.get("concepto", "")
     tasa = data.get("tasa", "")
     capital = data.get("capital", 0)
     fecha_origen_str = data.get("fecha_origen", "")
     fecha_liquidacion_str = data.get("fecha_liquidacion", "")
-    imprimir = data.get("imprimir", False)
-    descargar_pdf = data.get("descargar_pdf", False)
+    imprimir = data.get("imprimir", False)  # si ya no lo usás, lo podés borrar
 
     try:
         fecha_origen = datetime.strptime(fecha_origen_str, "%d/%m/%Y")
@@ -2091,40 +2092,213 @@ def calcular_liquidacion():
 
         # Procesar HTML
         resultado = parse_resultado_html(tabla_html)
+        print("\n\n")
+        print(resultado)
+        # Ej: resultado = {
+        #   "interes_total": ...,
+        #   "total_final": ...,
+        #   "calculo_intereses": [...]
+        # }
 
-        if descargar_pdf:
-            detalles = [f"{item['periodo']}: {item['resultado']}" for item in resultado.get("calculo_intereses", [])]
-            tasa_total = resultado.get("interes_total", 0)
-            monto_final = resultado.get("total_final", 0)
+        # Armamos una respuesta más completa para el front
+        response_payload = {
+            "ok": True,
+            "concepto": concepto,
+            "tasa": tasa,
+            "capital": float(capital),
+            "fecha_origen": fecha_origen_str,
+            "fecha_liquidacion": fecha_liquidacion_str,
+            **resultado
+        }
 
-            pdf_buffer = generate_liquidacion_pdf(
-                capital=float(capital),
-                fecha_origen=fecha_origen,
-                fecha_liquidacion=fecha_liquidacion,
-                detalles=detalles,
-                tasa_total=float(tasa_total),
-                monto_final=float(monto_final)
-            )
-
-            pdf_size = pdf_buffer.getbuffer().nbytes
-            if pdf_size < 1000:
-                raise ValueError("PDF generado es sospechosamente pequeño.")
-
-            return send_file(
-                pdf_buffer,
-                as_attachment=True,
-                download_name="liquidacion.pdf",
-                mimetype="application/pdf"
-            )
-
-        return jsonify({"ok": True, **resultado})
+        return jsonify(response_payload), 200
 
     except Exception as e:
         traceback.print_exc()
         logging.error(f"💥 Error completo: {str(e)}")
         enviar_alerta(f"💥 Error al calular liquidacion(/forms/calcular_liquidacion): {e}")
         register_in_txt(f"Error al calular liquidacion(/forms/calcular_liquidacion): {e}", "logs_bcm.txt")
-        return jsonify({"ok": False, "error": str(e)})
+        return jsonify({"ok": False, "error": str(e)}), 500
+
+
+
+# Endpoint
+# @forms_bp.route('/forms/calcular_liquidacion', methods=['POST'])
+# def calcular_liquidacion():
+#     data = request.json
+#     logging.info(f"📨 Datos recibidos: {data}")
+#     concepto = data.get("concepto", "")
+#     tasa = data.get("tasa", "")
+#     capital = data.get("capital", 0)
+#     fecha_origen_str = data.get("fecha_origen", "")
+#     fecha_liquidacion_str = data.get("fecha_liquidacion", "")
+#     imprimir = data.get("imprimir", False)
+#     descargar_pdf = data.get("descargar_pdf", False)
+
+#     try:
+#         fecha_origen = datetime.strptime(fecha_origen_str, "%d/%m/%Y")
+#         fecha_liquidacion = datetime.strptime(fecha_liquidacion_str, "%d/%m/%Y")
+
+#         with sync_playwright() as p:
+#             browser = p.chromium.launch(headless=True)
+
+#             context = browser.new_context(
+#                 user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/100.0.4896.127 Safari/537.36",
+#                 viewport={"width": 1920, "height": 1080},
+#                 locale="es-AR",
+#                 timezone_id="America/Argentina/Buenos_Aires"
+#             )
+#             context.set_extra_http_headers({
+#                 "Accept-Language": "es-AR,es;q=0.9,en-US;q=0.8,en;q=0.7",
+#                 "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8",
+#                 "sec-ch-ua": "\" Not A;Brand\";v=\"99\", \"Chromium\";v=\"100\"",
+#                 "sec-ch-ua-mobile": "?0",
+#                 "sec-ch-ua-platform": "\"Windows\""
+#             })
+
+#             page = context.new_page()
+#             max_retries = 3
+#             for attempt in range(max_retries):
+#                 try:
+#                     logging.info(f"🌐 Intento de navegación #{attempt+1}")
+#                     page.goto("https://tribunalesmza.com.ar/pdforms/calculo/form", timeout=60000)
+#                     if "Not Acceptable" in page.title():
+#                         logging.warning("⚠️ ModSecurity detectado, reintentando...")
+#                         human_delay(3, 5)
+#                         continue
+#                     break
+#                 except Exception as e:
+#                     logging.error(f"🚧 Error al navegar: {str(e)}")
+#                     if attempt == max_retries - 1:
+#                         raise
+#                     human_delay(3, 5)
+
+#             page.screenshot(path="/tmp/initial_page.png")
+
+#             # Interacciones humanas simuladas
+#             human_delay()
+#             move_mouse_randomly(page)
+#             scroll_randomly(page)
+
+#             # Paso 1: click en primer botón
+#             page.wait_for_selector('a.btn-default', timeout=10000)
+#             page.hover('a.btn-default')
+#             human_delay()
+#             page.click('a.btn-default')
+#             logging.info("🖱 Click en botón inicial")
+
+#             human_delay(1, 3)
+#             move_mouse_randomly(page)
+
+#             # Paso 2: click en segundo botón
+#             page.wait_for_selector('a.btn-success', timeout=10000)
+#             page.hover('a.btn-success')
+#             human_delay()
+#             page.click('a.btn-success')
+#             logging.info("🖱 Click en botón 'Continuar'")
+
+#             human_delay(1, 2)
+#             logging.info("✏️ Rellenando formulario...")
+
+
+#             page.wait_for_selector('input[placeholder="Descripción del concepto a liquidar"]', timeout=10000)
+#             page.focus('input[placeholder="Descripción del concepto a liquidar"]')
+#             human_delay()
+#             page.fill('input[placeholder="Descripción del concepto a liquidar"]', concepto)
+
+#             human_delay()
+#             page.select_option('select', label=tasa)
+
+#             human_delay()
+#             page.focus('input[placeholder="Capital"]')
+#             page.fill('input[placeholder="Capital"]', str(capital))
+
+#             human_delay()
+#             page.focus('input[placeholder="Fecha de origen dd/mm/aaaa"]')
+#             page.fill('input[placeholder="Fecha de origen dd/mm/aaaa"]', fecha_origen_str)
+
+#             if imprimir:
+#                 human_delay()
+#                 page.check('input[type="checkbox"]')
+
+
+#             page.screenshot(path="/tmp/before_submit.png")
+
+
+#             # Submit
+#             human_delay(1, 2)
+#             page.hover('input#submit')
+#             human_delay()
+#             page.click('input#submit')
+#             logging.info("📤 Formulario enviado")
+
+#             human_delay(2, 4)
+
+#             with open("/tmp/page_after_submit.html", "w") as f:
+#                 f.write(page.content())
+
+#             # Buscar tabla con resultados
+#             page.wait_for_selector('table', timeout=15000)
+#             tables = page.query_selector_all('table')
+#             logging.info(f"📊 Tablas encontradas: {len(tables)}")
+
+#             tabla_html = ""
+#             found_pesos_table = False
+#             for i, table in enumerate(tables):
+#                 table_text = table.inner_text()
+#                 if "pesos" in table_text.lower():
+#                     tabla_html = table.inner_html()
+#                     found_pesos_table = True
+#                     logging.info(f"✅ Tabla #{i} contiene 'pesos'")
+#                     break
+
+#             if not found_pesos_table:
+#                 logging.warning("🚨 No se encontró tabla con 'pesos'. Reintentando con selector de texto...")
+#                 try:
+#                     page.wait_for_selector('table:has-text("pesos")', timeout=20000)
+#                     tabla_html = page.inner_html('table:has-text("pesos")')
+#                 except Exception as e:
+#                     page.screenshot(path="/tmp/no_table_found.png")
+#                     raise ValueError("No se encontró ninguna tabla válida con resultados.")
+
+#             browser.close()
+
+#         # Procesar HTML
+#         resultado = parse_resultado_html(tabla_html)
+
+#         if descargar_pdf:
+#             detalles = [f"{item['periodo']}: {item['resultado']}" for item in resultado.get("calculo_intereses", [])]
+#             tasa_total = resultado.get("interes_total", 0)
+#             monto_final = resultado.get("total_final", 0)
+
+#             pdf_buffer = generate_liquidacion_pdf(
+#                 capital=float(capital),
+#                 fecha_origen=fecha_origen,
+#                 fecha_liquidacion=fecha_liquidacion,
+#                 detalles=detalles,
+#                 tasa_total=float(tasa_total),
+#                 monto_final=float(monto_final)
+#             )
+
+#             pdf_size = pdf_buffer.getbuffer().nbytes
+#             if pdf_size < 1000:
+#                 raise ValueError("PDF generado es sospechosamente pequeño.")
+
+#             return send_file(
+#                 pdf_buffer,
+#                 as_attachment=True,
+#                 download_name="liquidacion.pdf",
+#                 mimetype="application/pdf"
+#             )
+
+#         return jsonify({"ok": True, **resultado})
+
+#     except Exception as e:
+#         traceback.print_exc()
+#         logging.error(f"💥 Error completo: {str(e)}")
+#         enviar_alerta(f"💥 Error al calular liquidacion(/forms/calcular_liquidacion): {e}")
+#         register_in_txt(f"Error al calular liquidacion(/forms/calcular_liquidacion): {e}", "logs_bcm.txt")
+#         return jsonify({"ok": False, "error": str(e)})
     
 
 
