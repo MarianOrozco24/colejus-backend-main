@@ -23,8 +23,8 @@ def create_professional():
         if not all(field in data for field in required_fields):
             return {'error': 'Name, title, tuition, email, location are required.'}, 400
         
-        if data['title'] == 'Procurador' and 'procurador_professions' not in data:
-            return {"error" : "El campo procurador_professions es requerido para procuradores"}, 400        
+        # if data['title'] == 'Procurador' and 'procurador_professions' not in data:
+        #     return {"error" : "El campo procurador_professions es requerido para procuradores"}, 400        
 
 
         if "procurador_professions" in data:
