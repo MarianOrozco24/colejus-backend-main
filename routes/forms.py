@@ -297,6 +297,8 @@ def generar_boleta_bolsa():
         db.session.add(nuevo_df)
         db.session.commit()
 
+        print("Se guardo un derecho fijo con el uuid: ", nuevo_df.uuid)
+
         # 📌 Generar código de barras temporal (luego se usará el definitivo)
         # Este será reemplazado por el valor real que nos indique la Bolsa
         codigo_barra = f"COD-{nuevo_df.uuid}_{nuevo_df.juicio_n}_{nuevo_df.total_depositado}"
@@ -795,9 +797,38 @@ def bcm_webhook_presencial():
         if not cod_barra or not isinstance(cod_barra, str):
             return jsonify({"error": "El codigo de barra es requerido en formato str"}), 400
 
-        # limpiamos el codigo de barra para obtener el uuid del derecho_fijo
-        uuid_derecho_fijo = cod_barra.split("COD-")[1]
-        uuid_derecho_fijo = uuid_derecho_fijo.split("_")[0]
+        # Parsear el código de barras (soporta formato con y sin separadores)
+        print(f"📋 Código de barras recibido: {cod_barra}")
+        
+        # Formato CON separadores: COD-{uuid}_{juicio_n}_{total}
+        # La clave es que tenga "COD-" al inicio Y contenga "_" para separar los campos
+        if cod_barra.startswith("COD-") and "_" in cod_barra:
+            try:
+                uuid_derecho_fijo = cod_barra.split("COD-")[1].split("_")[0]
+                print(f"📋 Formato detectado: CON separadores")
+            except (IndexError, Exception) as parse_err:
+                print(f"❌ Error parseando formato con separadores: {parse_err}")
+                return jsonify({"error": "Error parseando código de barras con separadores"}), 500
+        else:
+            # Formato SIN separadores: COD{uuid_32_chars}{resto}
+            # Quitar prefijo "COD" o "COD-"
+            if cod_barra.startswith("COD-"):
+                sin_prefijo = cod_barra[4:]
+            elif cod_barra.startswith("COD"):
+                sin_prefijo = cod_barra[3:]
+            else:
+                return jsonify({"error": "Formato de código de barras inválido, debe comenzar con COD"}), 400
+            
+            # Los primeros 32 caracteres son el UUID (sin guiones)
+            if len(sin_prefijo) >= 32:
+                uuid_sin_guiones = sin_prefijo[:32]
+                # Reconstruir UUID con guiones para validación
+                uuid_derecho_fijo = f"{uuid_sin_guiones[:8]}-{uuid_sin_guiones[8:12]}-{uuid_sin_guiones[12:16]}-{uuid_sin_guiones[16:20]}-{uuid_sin_guiones[20:32]}"
+                print(f"📋 Formato detectado: SIN separadores")
+            else:
+                return jsonify({"error": f"Código de barras muy corto para extraer UUID. Longitud: {len(sin_prefijo)}, esperado: 32+"}), 400
+        
+        print(f"📋 UUID extraído: {uuid_derecho_fijo}")
 
 
         if not _is_valid_uuid(uuid_derecho_fijo):
