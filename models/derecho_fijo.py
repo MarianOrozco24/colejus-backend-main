@@ -54,7 +54,7 @@ class DerechoFijoModel(db.Model):
 
         # Create an instance of DerechoFijoModel
         derecho_fijo = DerechoFijoModel()
-        derecho_fijo.uuid = json_dict.get('uuid', str(uuid.uuid4()))
+        derecho_fijo.uuid = json_dict.get('uuid') or str(uuid.uuid4())  # 36 chars (32 hex + 4 guiones)
 
         # Assign values and validate dates
         derecho_fijo.lugar = json_dict['lugar']
