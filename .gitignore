@@ -173,3 +173,6 @@ logs_bcm.txt
 *.json
 
 logs_confirmacion_pagos_presenciales.txt
+
+
+*/scrape_debug.html
