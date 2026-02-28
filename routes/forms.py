@@ -36,6 +36,7 @@ from datetime import datetime
 from io import BytesIO
 import qrcode
 import hmac, hashlib, json
+import uuid
 
 from reportlab.lib.utils import ImageReader
 
@@ -299,9 +300,22 @@ def generar_boleta_bolsa():
 
         print("Se guardo un derecho fijo con el uuid: ", nuevo_df.uuid)
 
-        # 📌 Generar código de barras temporal (luego se usará el definitivo)
-        # Este será reemplazado por el valor real que nos indique la Bolsa
-        codigo_barra = f"COD-{nuevo_df.uuid}_{nuevo_df.juicio_n}_{nuevo_df.total_depositado}"
+        # 📌 Generar código de barras sin caracteres especiales para mejor compatibilidad con escáneres
+        # Formato: COD + UUID sin guiones (32 chars) + monto sanitizado (10 dígitos)
+        uuid_sin_guiones = str(nuevo_df.uuid).replace("-", "")
+        # Sanitizar monto: remover puntos y comas, convertir a enteros (centavos), rellenar con ceros
+        monto_str = str(nuevo_df.total_depositado).replace(".", "").replace(",", "")
+        # Si el monto tiene decimales implícitos, asegurarnos de que sea un entero
+        try:
+            monto_centavos = int(float(str(nuevo_df.total_depositado)) * 100)
+        except:
+            monto_centavos = int(monto_str) if monto_str.isdigit() else 0
+        monto_sanitizado = str(monto_centavos).zfill(10)  # 10 dígitos, ej: 0000500050 para $5000.50
+        
+        codigo_barra = f"COD{uuid_sin_guiones}{monto_sanitizado}"
+        
+        print(f"📋 Código de barras generado: {codigo_barra}")
+        print(f"📋 Longitud: {len(codigo_barra)} caracteres (esperado: 45 = 3+32+10)")
 
         # Codigo de barra de la bolsa
         # codigo_barra, qr_payload = get_bolsa_identifiers(nuevo_df)
@@ -321,7 +335,7 @@ def generar_boleta_bolsa():
         return send_file(
             pdf_buffer,
             as_attachment=True,
-            download_name=f"boleta_{nuevo_df.juicio_n}.pdf",
+            download_name=f"Boleta Derecho Fijo - Juicio n°{nuevo_df.juicio_n}.pdf",
             mimetype="application/pdf"
         ), 200
 
@@ -712,18 +726,73 @@ def bcm_webhook_oficial():
             print("❌ cod_cliente ausente en webhook BCM" , cod_cliente)
             return jsonify({"ok": False, "error": "cod_cliente ausente"}), 400
 
-        # df = DerechoFijoModel.query.filter_by(pay=cod_cliente).first()
+        print(f"🔍 Buscando recibo para cod_cliente: {cod_cliente}")
+
+        # 🔄 Búsqueda robusta con múltiples formatos para compatibilidad con códigos antiguos
+        # Intentamos buscar el recibo con diferentes variantes del código
         
+        receipt = None
+        search_attempts = []
         
-            # buscamos el último recibo de ese DF
+        # Variante 1: Código exacto como viene (puede ser nuevo o viejo)
         receipt = (
-        ReceiptModel.query
-        .filter_by(payment_id=cod_cliente)
-        .order_by(desc(ReceiptModel.fecha_pago))
-        .first()
+            ReceiptModel.query
+            .filter_by(payment_id=cod_cliente)
+            .order_by(desc(ReceiptModel.fecha_pago))
+            .first()
         )
+        search_attempts.append(f"Exacto: '{cod_cliente}'")
+        
+        # Variante 2: Si no se encuentra y el código parece ser del formato nuevo (sin guiones),
+        # intentar extraer el UUID y buscar con formato antiguo
+        if not receipt and cod_cliente.startswith("COD") and len(cod_cliente) == 45:
+            # Extraer UUID del formato nuevo COD{uuid32chars}{monto10chars}
+            try:
+                uuid_sin_guiones = cod_cliente[3:35]
+                # Reconstruir UUID con guiones
+                uuid_con_guiones = f"{uuid_sin_guiones[:8]}-{uuid_sin_guiones[8:12]}-{uuid_sin_guiones[12:16]}-{uuid_sin_guiones[16:20]}-{uuid_sin_guiones[20:32]}"
+                
+                # Buscar con patrón del formato antiguo: COD-{uuid}_...
+                old_format_pattern = f"COD-{uuid_con_guiones}_%"
+                receipt = (
+                    ReceiptModel.query
+                    .filter(ReceiptModel.payment_id.like(old_format_pattern))
+                    .order_by(desc(ReceiptModel.fecha_pago))
+                    .first()
+                )
+                search_attempts.append(f"Formato antiguo con UUID: '{old_format_pattern}'")
+                
+            except Exception as e:
+                print(f"⚠️ Error extrayendo UUID del código nuevo: {e}")
+        
+        # Variante 3: Si no se encuentra y el código tiene formato antiguo (COD-...),
+        # intentar buscar con formato nuevo
+        if not receipt and cod_cliente.startswith("COD-") and "_" in cod_cliente:
+            try:
+                # Extraer UUID del formato antiguo: COD-{uuid}_{juicio_n}_{total}
+                uuid_con_guiones = cod_cliente.split("COD-")[1].split("_")[0]
+                uuid_sin_guiones = uuid_con_guiones.replace("-", "")
+                
+                # Buscar con patrón del formato nuevo: COD{uuid_sin_guiones}...
+                new_format_pattern = f"COD{uuid_sin_guiones}%"
+                receipt = (
+                    ReceiptModel.query
+                    .filter(ReceiptModel.payment_id.like(new_format_pattern))
+                    .order_by(desc(ReceiptModel.fecha_pago))
+                    .first()
+                )
+                search_attempts.append(f"Formato nuevo con UUID: '{new_format_pattern}'")
+                
+            except Exception as e:
+                print(f"⚠️ Error extrayendo UUID del código antiguo: {e}")
+        
+        # Log de intentos de búsqueda
+        print(f"📋 Intentos de búsqueda realizados: {', '.join(search_attempts)}")
+        
         if receipt:
-        # si la Bolsa dice pagado, marcamos Pagado
+            print(f"✅ Recibo encontrado: {receipt.uuid} (payment_id: {receipt.payment_id})")
+            
+            # si la Bolsa dice pagado, marcamos Pagado
             if estado_transaccion in ("pagado", "aprobado", "approved", "aprobada"):
                 if (receipt.status or "").lower() != "pagado":
                     receipt.status = "Pagado"
@@ -748,7 +817,8 @@ def bcm_webhook_oficial():
                 print(f"ℹ️ Recibo {cod_cliente} no actualizado, estado BCM: {estado_transaccion}")
                 return jsonify({"ok": False, "error": "El recibo no se pudo actualizar. El status enviado no coincide con los siguientes (pagado, aprobado, approved)"}), 409
         else:
-            print(f"❌ No se encontró recibo para payment_id {9321747794} (juicio_n={df.juicio_n})")
+            print(f"❌ No se encontró recibo para cod_cliente: {cod_cliente}")
+            print(f"   Intentos realizados: {search_attempts}")
             return jsonify({"ok": False, "error": "No se encontró recibo para el DerechoFijo asociado."}), 404
 
                 # si vino “fallido”, podrías guardar “Rechazado”/“Fallido” (opcional)
@@ -797,8 +867,15 @@ def bcm_webhook_presencial():
         if not cod_barra or not isinstance(cod_barra, str):
             return jsonify({"error": "El codigo de barra es requerido en formato str"}), 400
 
+        # 🧹 Limpiar posibles espacios en blanco que puedan venir del escáner
+        cod_barra = cod_barra.strip()
+
         # Parsear el código de barras (soporta formato con y sin separadores)
         print(f"📋 Código de barras recibido: {cod_barra}")
+        print(f"📋 Longitud: {len(cod_barra)} caracteres")
+        print(f"📋 Status recibido: {status}")
+        print(f"📋 Monto bruto: {monto_bruto}")
+
         
         # Formato CON separadores: COD-{uuid}_{juicio_n}_{total}
         # La clave es que tenga "COD-" al inicio Y contenga "_" para separar los campos
