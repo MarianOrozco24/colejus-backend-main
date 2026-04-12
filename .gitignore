@@ -176,3 +176,6 @@ logs_confirmacion_pagos_presenciales.txt
 
 
 */scrape_debug.html
+
+# Logs
+logs/
