@@ -14,6 +14,7 @@ from .rate import RateModel
 from .receipts import ReceiptModel
 from .integrantes import IntegranteModel
 from .price_df import PriceDerechoFijo
+from .ip_manager import IPRegistry
 
 __all__ = [
     'UserModel',

@@ -18,14 +18,18 @@ class ProfileModel(db.Model):
         return '<Profile %r>' % self.uuid
 
     def to_json(self):
-        accesses = [access.to_json() for access in self.accesses]
+        try:
+            accesses = [access.to_json() for access in self.accesses]
+        except Exception:
+            accesses = []
+            
         return {
             'uuid': self.uuid,
             'name': self.name,
             'description': self.description,
             'accesses': accesses,
-            'created_at': self.created_at.isoformat(),
-            'updated_at': self.updated_at.isoformat(),
+            'created_at': self.created_at.isoformat() if self.created_at else None,
+            'updated_at': self.updated_at.isoformat() if self.updated_at else None,
             'deleted_at': self.deleted_at.isoformat() if self.deleted_at else None
         }
         
