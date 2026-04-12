@@ -9,6 +9,8 @@ from config.config import db
 import os
 from flask import current_app
 from werkzeug.security import generate_password_hash
+from models.access import AccessModel
+from sqlalchemy.orm import subqueryload
 
 dev_bp = Blueprint('dev', __name__)
 
@@ -92,7 +94,7 @@ def view_log(filename):
 
 @dev_bp.route('/dev/users', methods=['GET'])
 def list_users():
-    users = UserModel.query.all()
+    users = UserModel.query.options(subqueryload(UserModel.profiles).subqueryload(ProfileModel.accesses)).all()
     return jsonify([user.to_json() for user in users])
 
 @dev_bp.route('/dev/users/block', methods=['POST'])
@@ -137,8 +139,77 @@ def create_user_dev():
 
 @dev_bp.route('/dev/profiles', methods=['GET'])
 def list_profiles_dev():
-    profiles = ProfileModel.query.filter_by(deleted_at=None).all()
+    profiles = ProfileModel.query.options(subqueryload(ProfileModel.accesses)).all() # Fetch all including deleted for management
     return jsonify([p.to_json() for p in profiles])
+
+@dev_bp.route('/dev/accesses', methods=['GET'])
+def list_accesses_dev():
+    accesses = AccessModel.query.all()
+    return jsonify([a.to_json() for a in accesses])
+
+@dev_bp.route('/dev/profiles/create', methods=['POST'])
+def create_profile_dev():
+    data = request.json
+    try:
+        new_profile = ProfileModel(
+            name=data['name'],
+            description=data.get('description', '')
+        )
+        accesses_uuids = data.get('accesses', [])
+        if accesses_uuids:
+            accs = AccessModel.query.filter(AccessModel.uuid.in_(accesses_uuids)).all()
+            new_profile.accesses = accs
+            
+        db.session.add(new_profile)
+        db.session.commit()
+        return jsonify(new_profile.to_json()), 201
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({'error': str(e)}), 400
+
+@dev_bp.route('/dev/profiles/edit', methods=['POST'])
+def edit_profile_dev():
+    data = request.json
+    profile_uuid = data.get('uuid')
+    
+    profile = ProfileModel.query.get(profile_uuid)
+    if not profile:
+        return jsonify({'error': 'Profile not found'}), 404
+        
+    try:
+        if 'name' in data and data['name']:
+            profile.name = data['name']
+        if 'description' in data:
+            profile.description = data['description']
+            
+        accesses_uuids = data.get('accesses')
+        if accesses_uuids is not None:
+            accs = AccessModel.query.filter(AccessModel.uuid.in_(accesses_uuids)).all()
+            profile.accesses = accs
+            
+        db.session.commit()
+        return jsonify(profile.to_json()), 200
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({'error': str(e)}), 400
+
+@dev_bp.route('/dev/profiles/block', methods=['POST'])
+def toggle_profile_block():
+    data = request.json
+    profile_uuid = data.get('uuid')
+    profile = ProfileModel.query.get(profile_uuid)
+    if not profile:
+        return jsonify({'error': 'Profile not found'}), 404
+    
+    if profile.deleted_at:
+        profile.deleted_at = None
+        message = "Profile unblocked/restored"
+    else:
+        profile.deleted_at = datetime.utcnow()
+        message = "Profile blocked/deleted"
+        
+    db.session.commit()
+    return jsonify({'message': message, 'is_blocked': profile.deleted_at is not None})
 
 @dev_bp.route('/dev/users/edit', methods=['POST'])
 def edit_user_dev():
