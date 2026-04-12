@@ -99,8 +99,13 @@ def setup_logging(app):
 
 def get_log_stream():
     while True:
-        msg = log_queue.get()
-        yield f"data: {msg}\n\n"
+        try:
+            # Esperar como máximo 15 segundos para evitar que Gunicorn detecte un "worker timeout"
+            msg = log_queue.get(timeout=15)
+            yield f"data: {msg}\n\n"
+        except queue.Empty:
+            # Enviar un comentario SSE vacío para mantener la conexión viva y reiniciar el contador de timeout de Gunicorn
+            yield ": keepalive\n\n"
 
 def get_recent_logs():
     """Devuelve los logs de las últimas 6 horas almacenados en el cache volátil."""

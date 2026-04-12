@@ -10,7 +10,12 @@ from utils.logging_config import setup_logging
 from flask_limiter import Limiter
 from flask_limiter.util import get_remote_address
 
+from flask import Flask
+from werkzeug.middleware.proxy_fix import ProxyFix
+
 app = Flask(__name__)
+# Solucionar IP reales a traves del proxy de produccion
+app.wsgi_app = ProxyFix(app.wsgi_app, x_for=1, x_proto=1, x_host=1, x_prefix=1)
 
 # Configuración de Rate Limit
 limiter = Limiter(

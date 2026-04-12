@@ -10,6 +10,7 @@ import os
 from flask import current_app
 from werkzeug.security import generate_password_hash
 from models.access import AccessModel
+from sqlalchemy.orm import subqueryload
 
 dev_bp = Blueprint('dev', __name__)
 
@@ -93,7 +94,7 @@ def view_log(filename):
 
 @dev_bp.route('/dev/users', methods=['GET'])
 def list_users():
-    users = UserModel.query.all()
+    users = UserModel.query.options(subqueryload(UserModel.profiles).subqueryload(ProfileModel.accesses)).all()
     return jsonify([user.to_json() for user in users])
 
 @dev_bp.route('/dev/users/block', methods=['POST'])
@@ -138,7 +139,7 @@ def create_user_dev():
 
 @dev_bp.route('/dev/profiles', methods=['GET'])
 def list_profiles_dev():
-    profiles = ProfileModel.query.all() # Fetch all including deleted for management
+    profiles = ProfileModel.query.options(subqueryload(ProfileModel.accesses)).all() # Fetch all including deleted for management
     return jsonify([p.to_json() for p in profiles])
 
 @dev_bp.route('/dev/accesses', methods=['GET'])
