@@ -45,7 +45,16 @@ def block_ip():
     
     ip_record = IPRegistry.query.filter_by(ip=ip_to_block).first()
     if not ip_record:
-        ip_record = IPRegistry(ip=ip_to_block)
+        from utils.ip_location import get_ip_location
+        location_data = get_ip_location(ip_to_block)
+        ip_record = IPRegistry(
+            ip=ip_to_block,
+            pais=location_data["pais"],
+            ciudad=location_data["ciudad"],
+            continente=location_data["continente"],
+            proveedor=location_data["proveedor"],
+            dominio_proveedor=location_data["dominio_proveedor"]
+        )
         db.session.add(ip_record)
     
     ip_record.is_blocked = True

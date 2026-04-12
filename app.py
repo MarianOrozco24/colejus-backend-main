@@ -40,11 +40,15 @@ init_mail(app) # Inicializo la configuración de mail
 from flask import request, abort
 from models.ip_manager import IPRegistry
 from datetime import datetime, timedelta
+from utils.ip_location import get_ip_location
 
 @app.before_request
 def check_ip_block():
     # Ignorar peticiones de ping/dev stats si se desea, o rastrear todo
-    client_ip = request.remote_addr
+    client_ip = request.headers.get('X-Forwarded-For', request.remote_addr)
+    if client_ip:
+        client_ip = client_ip.split(',')[0].strip()
+    
     ip_record = IPRegistry.query.filter_by(ip=client_ip).first()
     
     if ip_record and ip_record.is_blocked:
@@ -56,7 +60,10 @@ def track_ip_stats(response):
     if not request.endpoint or 'static' in request.endpoint:
         return response
 
-    client_ip = request.remote_addr
+    client_ip = request.headers.get('X-Forwarded-For', request.remote_addr)
+    if client_ip:
+        client_ip = client_ip.split(',')[0].strip()
+        
     if not client_ip:
         return response
         
@@ -65,16 +72,21 @@ def track_ip_stats(response):
     try:
         ip_record = IPRegistry.query.filter_by(ip=client_ip).first()
         if not ip_record:
+            location_data = get_ip_location(client_ip)
             ip_record = IPRegistry(
                 ip=client_ip,
                 last_seen=now,
                 requests_minute=0,
                 requests_month=0,
                 last_minute_reset=now,
-                last_month_reset=now
+                last_month_reset=now,
+                pais=location_data["pais"],
+                ciudad=location_data["ciudad"],
+                continente=location_data["continente"],
+                proveedor=location_data["proveedor"],
+                dominio_proveedor=location_data["dominio_proveedor"]
             )
             db.session.add(ip_record)
-        
         # Lógica de reset por minuto
         if not ip_record.last_minute_reset or (now - ip_record.last_minute_reset).total_seconds() > 60:
             ip_record.requests_minute = 1

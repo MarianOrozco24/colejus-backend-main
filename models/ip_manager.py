@@ -14,11 +14,23 @@ class IPRegistry(db.Model):
     last_minute_reset = db.Column(db.DateTime, default=datetime.utcnow)
     last_month_reset = db.Column(db.DateTime, default=datetime.utcnow)
 
+    # Geolocation data
+    pais = db.Column(db.String(100), default="Desconocido")
+    ciudad = db.Column(db.String(100), default="Desconocido")
+    continente = db.Column(db.String(100), default="Desconocido")
+    proveedor = db.Column(db.String(150), default="Desconocido")
+    dominio_proveedor = db.Column(db.String(150), default="Desconocido")
+
     def to_dict(self):
         return {
             'ip': self.ip,
             'last_seen': self.last_seen.isoformat(),
             'requests_minute': self.requests_minute,
             'requests_month': self.requests_month,
-            'is_blocked': self.is_blocked
+            'is_blocked': self.is_blocked,
+            'pais': self.pais,
+            'ciudad': self.ciudad,
+            'continente': self.continente,
+            'proveedor': self.proveedor,
+            'dominio_proveedor': self.dominio_proveedor
         }
