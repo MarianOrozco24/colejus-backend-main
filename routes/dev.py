@@ -31,10 +31,22 @@ def get_stats():
     }
     return jsonify(stats)
 
+from utils.ip_manager_cache import ip_manager_cache
+
 @dev_bp.route('/dev/ips', methods=['GET'])
 def list_ips():
-    ips = IPRegistry.query.order_by(IPRegistry.last_seen.desc()).all()
-    return jsonify([ip.to_dict() for ip in ips])
+    # Retrieve from cache to get the most up-to-date stats without hitting DB
+    ips = []
+    for info in ip_manager_cache.ip_cache.values():
+        rec = dict(info['record'])
+        if isinstance(rec['last_seen'], datetime):
+            rec['last_seen'] = rec['last_seen'].isoformat()
+        if 'last_minute_reset' in rec: del rec['last_minute_reset']
+        if 'last_month_reset' in rec: del rec['last_month_reset']
+        ips.append(rec)
+    # Sort by last_seen
+    ips.sort(key=lambda x: x['last_seen'], reverse=True)
+    return jsonify(ips)
 
 @dev_bp.route('/dev/ips/block', methods=['POST'])
 def block_ip():
@@ -43,13 +55,7 @@ def block_ip():
     if not ip_to_block:
         return jsonify({'error': 'IP is required'}), 400
     
-    ip_record = IPRegistry.query.filter_by(ip=ip_to_block).first()
-    if not ip_record:
-        ip_record = IPRegistry(ip=ip_to_block)
-        db.session.add(ip_record)
-    
-    ip_record.is_blocked = True
-    db.session.commit()
+    ip_manager_cache.block_ip(ip_to_block)
     return jsonify({'message': f'IP {ip_to_block} blocked successfully'})
 
 @dev_bp.route('/dev/ips/unblock', methods=['POST'])
@@ -59,11 +65,49 @@ def unblock_ip():
     if not ip_to_unblock:
         return jsonify({'error': 'IP is required'}), 400
     
-    ip_record = IPRegistry.query.filter_by(ip=ip_to_unblock).first()
-    if ip_record:
-        ip_record.is_blocked = False
-        db.session.commit()
+    ip_manager_cache.unblock_ip(ip_to_unblock)
     return jsonify({'message': f'IP {ip_to_unblock} unblocked successfully'})
+
+@dev_bp.route('/dev/regions/blocked', methods=['GET'])
+def list_blocked_regions():
+    from models.blocked_region import BlockedRegion
+    regions = BlockedRegion.query.all()
+    return jsonify([r.to_dict() for r in regions])
+
+@dev_bp.route('/dev/regions/block', methods=['POST'])
+def block_region():
+    data = request.get_json()
+    region_type = data.get('region_type') # 'country' or 'continent'
+    region_name = data.get('region_name')
+    if not region_type or not region_name:
+        return jsonify({'error': 'region_type and region_name required'}), 400
+        
+    from models.blocked_region import BlockedRegion
+    r = BlockedRegion.query.filter_by(region_name=region_name).first()
+    if not r:
+        r = BlockedRegion(region_type=region_type, region_name=region_name)
+        db.session.add(r)
+        db.session.commit()
+        # update cache
+        ip_manager_cache.blocked_regions[region_type].add(region_name)
+        
+    return jsonify({'message': f'Region {region_name} blocked successfully'})
+
+@dev_bp.route('/dev/regions/unblock', methods=['POST'])
+def unblock_region():
+    data = request.get_json()
+    region_name = data.get('region_name')
+    region_type = data.get('region_type')
+    
+    from models.blocked_region import BlockedRegion
+    r = BlockedRegion.query.filter_by(region_name=region_name).first()
+    if r:
+        db.session.delete(r)
+        db.session.commit()
+        if region_name in ip_manager_cache.blocked_regions[r.region_type]:
+            ip_manager_cache.blocked_regions[r.region_type].remove(region_name)
+            
+    return jsonify({'message': f'Region {region_name} unblocked successfully'})
 
 @dev_bp.route('/dev/logs/history', methods=['GET'])
 def list_logs():
