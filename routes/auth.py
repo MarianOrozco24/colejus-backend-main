@@ -13,17 +13,26 @@ auth_bp = Blueprint('auth', __name__)
 @token_required
 def create_user():
     data = request.json
+    if not data:
+        return {'error': 'No input data provided'}, 400
     required_fields = ['password', 'name', 'email', 'profiles']
-    if not all(field in data for field in required_fields):
-        return {'error': 'Email, password, name are required.'}, 400
-
+    missing_fields = [field for field in required_fields if field not in data]
+    if missing_fields:
+        return {'error': f'Missing fields: {", ".join(missing_fields)}'}, 400
     profiles_uuids = data.get('profiles', [])
-    if not profiles_uuids:
-        return {'error': 'No profile UUIDs provided. At least one profile UUID is required.'}, 400
-
+    if not isinstance(profiles_uuids, list) or not profiles_uuids:
+        return {'error': 'At least one profile UUID must be provided in a list.'}, 400
+    # Verificar si el email ya existe antes de intentar guardar en BD
+    if UserModel.query.filter_by(email=data['email']).first():
+        return {'error': 'Email is already registered.'}, 400
     try:
         user = UserModel.from_json(data)
         profiles = ProfileModel.query.filter(ProfileModel.uuid.in_(profiles_uuids), ProfileModel.deleted_at == None).all()
+        
+        # Opcional: Validar que todos los UUIDs pasados existan realmente
+        if len(profiles) != len(profiles_uuids):
+            return {'error': 'One or more of the specified profile UUIDs are invalid or inactive.'}, 400
+            
         user.profiles = profiles
         db.session.add(user)
         db.session.commit()
@@ -31,7 +40,7 @@ def create_user():
     except Exception as e:
         db.session.rollback()
         print(e)
-        return {'error': str(e)}, 400
+        return {'error': 'An internal error occurred while saving the user.'}, 500
 
 @auth_bp.route('/login', methods=['POST'])
 def login():

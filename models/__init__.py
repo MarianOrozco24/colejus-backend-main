@@ -15,6 +15,7 @@ from .receipts import ReceiptModel
 from .integrantes import IntegranteModel
 from .price_df import PriceDerechoFijo
 from .ip_manager import IPRegistry
+from .blocked_region import BlockedRegion
 
 __all__ = [
     'UserModel',

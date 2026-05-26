@@ -40,7 +40,7 @@ init_mail(app) # Inicializo la configuración de mail
 from flask import request, abort
 from models.ip_manager import IPRegistry
 from datetime import datetime, timedelta
-from utils.ip_location import get_ip_location
+from utils.ip_manager_cache import ip_manager_cache
 
 @app.before_request
 def check_ip_block():
@@ -49,9 +49,7 @@ def check_ip_block():
     if client_ip:
         client_ip = client_ip.split(',')[0].strip()
     
-    ip_record = IPRegistry.query.filter_by(ip=client_ip).first()
-    
-    if ip_record and ip_record.is_blocked:
+    if ip_manager_cache.check_blocked(client_ip):
         abort(403, description="Tu IP ha sido bloqueada por el administrador.")
 
 @app.after_request
@@ -67,45 +65,10 @@ def track_ip_stats(response):
     if not client_ip:
         return response
         
-    now = datetime.utcnow()
-    
     try:
-        ip_record = IPRegistry.query.filter_by(ip=client_ip).first()
-        if not ip_record:
-            location_data = get_ip_location(client_ip)
-            ip_record = IPRegistry(
-                ip=client_ip,
-                last_seen=now,
-                requests_minute=0,
-                requests_month=0,
-                last_minute_reset=now,
-                last_month_reset=now,
-                pais=location_data["pais"],
-                ciudad=location_data["ciudad"],
-                continente=location_data["continente"],
-                proveedor=location_data["proveedor"],
-                dominio_proveedor=location_data["dominio_proveedor"]
-            )
-            db.session.add(ip_record)
-        # Lógica de reset por minuto
-        if not ip_record.last_minute_reset or (now - ip_record.last_minute_reset).total_seconds() > 60:
-            ip_record.requests_minute = 1
-            ip_record.last_minute_reset = now
-        else:
-            ip_record.requests_minute += 1
-            
-        # Lógica de reset por mes
-        if not ip_record.last_month_reset or ip_record.last_month_reset.month != now.month:
-            ip_record.requests_month = 1
-            ip_record.last_month_reset = now
-        else:
-            ip_record.requests_month += 1
-            
-        ip_record.last_seen = now
-        db.session.commit()
+        ip_manager_cache.track_request(client_ip)
     except Exception as e:
-        app.logger.error(f"Error tracking IP stats: {e}")
-        db.session.rollback()
+        app.logger.error(f"Error tracking IP stats in cache: {e}")
     
     return response
 
@@ -115,6 +78,7 @@ with app.app_context():
 
 # Inicializar y registrar todos los blueprints
 init_app(app)
+ip_manager_cache.init_app(app)
 
 if __name__ == '__main__':
     # enviar_alerta("🤖 Monitoreando colejus")
