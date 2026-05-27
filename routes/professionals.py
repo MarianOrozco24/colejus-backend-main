@@ -99,10 +99,15 @@ def get_public_professionals():
         per_page = request.args.get('per_page', 10, type=int)
         search = request.args.get('search', '')
         letter = request.args.get('letter', '')
+        title_filter = request.args.get('title', '')
         locations = request.args.get('locations', '').split(',') if request.args.get('locations') else []
         
         query = ProfessionalModel.query.filter_by(deleted_at=None)
         
+        # Apply title filter if provided (e.g. Abogado or Procurador)
+        if title_filter:
+            query = query.filter(ProfessionalModel.title.ilike(f'%{title_filter}%'))
+            
         # Apply letter filter if provided
         if letter:
             query = query.filter(ProfessionalModel.name.ilike(f'{letter}%'))

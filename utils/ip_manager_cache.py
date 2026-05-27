@@ -1,5 +1,5 @@
 import time
-from threading import Lock, Thread
+from threading import RLock, Thread
 import logging
 from config.config import db
 from models.ip_manager import IPRegistry
@@ -12,7 +12,7 @@ class IPCacheManager:
     def __init__(self):
         self.ip_cache = {}  # { "ip": { "record": dict, "dirty": bool, "new": bool } }
         self.blocked_regions = {'country': set(), 'continent': set()}
-        self.lock = Lock()
+        self.lock = RLock()
         self.last_sync = time.time()
         self.SYNC_INTERVAL = 600  # 10 minutos
         self.app = None
