@@ -3,10 +3,13 @@ from datetime import datetime
 from config.config import db
 from models.booking import BookingModel
 from sqlalchemy.exc import IntegrityError
+from utils.decorators import token_required, access_required
 
 booking_bp = Blueprint('booking', __name__)
 
 @booking_bp.route('/bookings/occupied', methods=['GET'])
+@token_required
+@access_required('book_rooms')
 def get_occupied_slots():
     room_id = request.args.get('room_id')
     date_str = request.args.get('date')
@@ -27,6 +30,8 @@ def get_occupied_slots():
         return jsonify({'error': str(e)}), 500
 
 @booking_bp.route('/bookings', methods=['POST'])
+@token_required
+@access_required('book_rooms')
 def create_booking():
     data = request.json
     if not data:

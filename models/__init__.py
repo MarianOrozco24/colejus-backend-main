@@ -17,6 +17,7 @@ from .price_df import PriceDerechoFijo
 from .ip_manager import IPRegistry
 from .blocked_region import BlockedRegion
 from .booking import BookingModel
+from .room import RoomModel
 
 __all__ = [
     'UserModel',
@@ -35,5 +36,6 @@ __all__ = [
     "ReceiptModel",
     "IntegranteModel",
     "PriceDerechoFijo",
-    "BookingModel"
+    "BookingModel",
+    "RoomModel"
 ]
