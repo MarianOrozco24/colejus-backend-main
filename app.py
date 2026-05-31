@@ -81,7 +81,7 @@ with app.app_context():
     import uuid
     import json
 
-    # 1. Seed accesses
+    # 1. Seed default accesses (permissions)
     default_accesses = {
         'view_news': 'Ver sección de noticias',
         'manage_news': 'Publicar, editar y eliminar noticias',
@@ -99,6 +99,10 @@ with app.app_context():
         'manage_receipts': 'Descargar y gestionar recibos',
         'view_revenue': 'Ver dashboard de ingresos',
         'manage_revenue': 'Gestionar datos del dashboard de ingresos',
+        'view_lawyer_payments': 'Ver historial de pagos de membresías',
+        'manage_lawyer_payments': 'Registrar pagos de membresías',
+        'view_collection_admin': 'Ver administrador de cobros de membresías',
+        'manage_collection_admin': 'Modificar valores y ver reportes de deudores',
         'view_integrantes': 'Ver sección nosotros/integrantes',
         'manage_integrantes': 'Crear, editar y eliminar integrantes',
         'book_rooms': 'Reservar salas de coworking',
@@ -123,8 +127,9 @@ with app.app_context():
         db.session.rollback()
         app.logger.error(f"Error seeding accesses: {e}")
 
-    # 2. Seed lawyer profile and assign lawyer defaults
+    # 2. Seed profiles and map permissions
     try:
+        # Seed lawyer profile if missing
         lawyer_profile = ProfileModel.query.filter_by(name='lawyer').first()
         if not lawyer_profile:
             lawyer_profile = ProfileModel(
@@ -135,6 +140,7 @@ with app.app_context():
             db.session.add(lawyer_profile)
             db.session.commit()
             
+        # Give lawyer default accesses
         default_lawyer_accesses = [
             'view_news',
             'view_trainings',
@@ -143,6 +149,8 @@ with app.app_context():
             'view_rates',
             'view_receipts',
             'view_integrantes',
+            'view_lawyer_payments',
+            'manage_lawyer_payments',
             'book_rooms'
         ]
         for name in default_lawyer_accesses:
@@ -150,7 +158,7 @@ with app.app_context():
             if acc and acc not in lawyer_profile.accesses:
                 lawyer_profile.accesses.append(acc)
 
-        # Give Administrators all permissions
+        # Give Administrators all permissions by default
         admin_profiles = ProfileModel.query.filter(ProfileModel.name.in_(['Admin', 'Administrador'])).all()
         for ap in admin_profiles:
             for acc in db_accesses.values():

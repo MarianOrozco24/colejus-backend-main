@@ -44,9 +44,14 @@ def access_required(access_name):
             
             has_access = False
             for profile in user.profiles:
-                if profile.name.lower() == 'dev':
+                p_name = profile.name.lower()
+                if p_name == 'dev':
                     has_access = True
                     break
+                
+
+                
+                # Check database granted accesses for other profiles (Admin, etc.)
                 for access in profile.accesses:
                     if access.name == access_name:
                         has_access = True

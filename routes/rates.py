@@ -8,9 +8,9 @@ from flask_jwt_extended import jwt_required
 rate_bp = Blueprint('rate_bp', __name__)
 
 @rate_bp.route('/rates', methods=['POST'])
-# @jwt_required()
-# @token_required 
-# @access_required('manage_rates')
+@jwt_required()
+@token_required 
+@access_required('manage_rates')
 def create_rate():
    data = request.json
    print(data)
@@ -44,18 +44,18 @@ def create_rate():
        return jsonify({'message': str(e)}), 400
 
 @rate_bp.route('/rates', methods=['GET'])
-# @jwt_required()
-# @token_required 
-# @access_required('view_rates')
+@jwt_required()
+@token_required 
+@access_required('view_rates')
 def get_all_rates():
     rates = RateModel.query.filter(RateModel.deleted_at == None).all()
     rates_data = [rate.to_json() for rate in rates]
     return jsonify(rates_data), 200
 
 @rate_bp.route('/rates/<uuid>', methods=['GET'])
-# @jwt_required()
-# @token_required 
-# @access_required('view_rates')
+@jwt_required()
+@token_required 
+@access_required('view_rates')
 def get_rate(uuid):
     rate = RateModel.query.filter_by(uuid=uuid, deleted_at=None).first()
     if rate:
@@ -63,9 +63,9 @@ def get_rate(uuid):
     return jsonify({'message': 'Rate not found'}), 404
 
 @rate_bp.route('/rates/<uuid>', methods=['PUT'])
-# @jwt_required()
-# @token_required 
-# @access_required('manage_rates')
+@jwt_required()
+@token_required 
+@access_required('manage_rates')
 def update_rate(uuid):
     rate = RateModel.query.filter_by(uuid=uuid, deleted_at=None).first()
     if not rate:
@@ -109,9 +109,9 @@ def update_rate(uuid):
     return jsonify({'message': 'Rate updated successfully'}), 200
 
 @rate_bp.route('/rates/<uuid>', methods=['DELETE'])
-# @jwt_required()
-# @token_required 
-# @access_required('manage_rates')
+@jwt_required()
+@token_required 
+@access_required('manage_rates')
 def delete_rate(uuid):
     rate = RateModel.query.filter_by(uuid=uuid, deleted_at=None).first()
     if not rate:

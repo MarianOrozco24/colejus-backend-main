@@ -21,8 +21,9 @@ def get_all_integrantes():
 
 # Crear un nuevo integrante
 @integrantes_bp.route('/integrantes', methods=['POST'])
-# @jwt_required()
-# @token_required
+@jwt_required()
+@token_required
+@access_required('manage_integrantes')
 def create_integrante():
     try:
         data = request.json
@@ -43,8 +44,9 @@ def create_integrante():
 
 # Eliminar un integrante
 @integrantes_bp.route('/integrantes/<string:uuid>', methods=['DELETE'])
-# @jwt_required()
-# @token_required
+@jwt_required()
+@token_required
+@access_required('manage_integrantes')
 def delete_integrante(uuid):
     try:
         integrante = IntegranteModel.query.get(uuid)
