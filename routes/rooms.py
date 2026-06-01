@@ -41,9 +41,16 @@ def create_room():
         return jsonify({'error': f'Missing required fields: {", ".join(missing)}'}), 400
 
     try:
+        capacity_val = int(str(data['capacity']).strip())
+        if capacity_val <= 0:
+            return jsonify({'error': 'Capacity must be a positive integer'}), 400
+    except ValueError:
+        return jsonify({'error': 'Capacity must be a valid integer'}), 400
+
+    try:
         room = RoomModel(
             name=data['name'].strip(),
-            capacity=data['capacity'].strip(),
+            capacity=capacity_val,
             price=float(data['price']),
             image=data.get('image', '').strip() or None,
             description=data.get('description', '').strip() or None,
@@ -79,7 +86,13 @@ def update_room(room_id):
         if 'name' in data:
             room.name = data['name'].strip()
         if 'capacity' in data:
-            room.capacity = data['capacity'].strip()
+            try:
+                capacity_val = int(str(data['capacity']).strip())
+                if capacity_val <= 0:
+                    return jsonify({'error': 'Capacity must be a positive integer'}), 400
+                room.capacity = capacity_val
+            except ValueError:
+                return jsonify({'error': 'Capacity must be a valid integer'}), 400
         if 'price' in data:
             room.price = float(data['price'])
         if 'image' in data:
