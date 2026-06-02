@@ -200,6 +200,8 @@ def update_professional(uuid):
             professional.phone = data['phone']
         if 'address' in data:
             professional.address = data['address']        
+        if 'uuid_user' in data:
+            professional.uuid_user = data['uuid_user']
             
         professional.updated_at = datetime.utcnow()
         db.session.commit()
@@ -235,4 +237,32 @@ def delete_professional(uuid):
         
     except Exception as e:
         db.session.rollback()
+        return jsonify({'error': str(e)}), 500
+
+@professional_bp.route('/professionals/me', methods=['GET'])
+@jwt_required()
+@token_required
+def get_my_professional_profile():
+    try:
+        from flask_jwt_extended import get_jwt_identity
+        from models import UserModel
+        email = get_jwt_identity()
+        user = UserModel.query.filter_by(email=email, deleted_at=None).first()
+        if not user:
+            return jsonify({'error': 'User not found'}), 404
+            
+        professional = ProfessionalModel.query.filter_by(uuid_user=user.uuid, deleted_at=None).first()
+        if not professional:
+            # Fallback: check by email matching
+            professional = ProfessionalModel.query.filter_by(email=user.email, deleted_at=None).first()
+            if not professional:
+                return jsonify({'error': 'No professional profile associated with this user.'}), 404
+            
+            # Auto-link if matches email and uuid_user is null
+            if not professional.uuid_user:
+                professional.uuid_user = user.uuid
+                db.session.commit()
+
+        return jsonify(professional.to_json()), 200
+    except Exception as e:
         return jsonify({'error': str(e)}), 500

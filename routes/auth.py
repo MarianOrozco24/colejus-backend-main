@@ -1,6 +1,6 @@
 from datetime import datetime, timedelta
 from flask import Blueprint, request, jsonify
-from models import UserModel, ProfileModel
+from models import UserModel, ProfileModel, ProfessionalModel
 from config.config import db
 from flask_jwt_extended import create_access_token, jwt_required, get_jwt_identity
 from werkzeug.security import generate_password_hash
@@ -35,6 +35,17 @@ def create_user():
             
         user.profiles = profiles
         db.session.add(user)
+
+        # Check and associate professional if tuition/matricula is provided
+        tuition = data.get('tuition') or data.get('matricula')
+        if tuition:
+            professional = ProfessionalModel.query.filter_by(tuition=str(tuition), deleted_at=None).first()
+            if professional:
+                if professional.uuid_user and professional.uuid_user != user.uuid:
+                    return {'error': 'Este perfil profesional ya está vinculado a otro usuario.'}, 400
+                professional.uuid_user = user.uuid
+                db.session.add(professional)
+
         db.session.commit()
         return {'user_uuid': user.uuid}, 201
     except Exception as e:

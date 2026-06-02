@@ -14,6 +14,7 @@ class ProfessionalModel(db.Model):
     procurador_professions= db.Column(db.String(100), nullable=True)
     phone = db.Column(db.String(36), nullable=True)
     location = db.Column(db.String(36), nullable=False)
+    uuid_user = db.Column(db.String(36), db.ForeignKey('users.uuid'), nullable=True, unique=True)
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
     updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
     deleted_at = db.Column(db.DateTime, nullable=True)
@@ -32,6 +33,7 @@ class ProfessionalModel(db.Model):
             address=json_data.get('address'),  
             phone=json_data.get('phone'),
             location=json_data.get('location'),
+            uuid_user=json_data.get('uuid_user'),
         )
 
     def to_json(self):
@@ -45,6 +47,7 @@ class ProfessionalModel(db.Model):
             'procurador_professions' : self.procurador_professions,
             'phone': self.phone,
             'location': self.location,
+            'uuid_user': self.uuid_user,
             'created_at': self.created_at,
             'updated_at': self.updated_at,
         }

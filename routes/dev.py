@@ -4,7 +4,7 @@ import time
 from datetime import datetime
 from utils.logging_config import get_log_stream, get_recent_logs
 from models.ip_manager import IPRegistry
-from models import UserModel, ProfileModel
+from models import UserModel, ProfileModel, ProfessionalModel
 from config.config import db
 import os
 from flask import current_app
@@ -219,6 +219,17 @@ def create_user_dev():
             new_user.profiles = profiles
             
         db.session.add(new_user)
+        
+        # Check and associate professional if tuition/matricula is provided
+        tuition = data.get('tuition') or data.get('matricula')
+        if tuition:
+            professional = ProfessionalModel.query.filter_by(tuition=str(tuition), deleted_at=None).first()
+            if professional:
+                if professional.uuid_user and professional.uuid_user != new_user.uuid:
+                    return jsonify({'error': 'Este perfil profesional ya está vinculado a otro usuario.'}), 400
+                professional.uuid_user = new_user.uuid
+                db.session.add(professional)
+
         db.session.commit()
         return jsonify(new_user.to_json()), 201
     except Exception as e:
