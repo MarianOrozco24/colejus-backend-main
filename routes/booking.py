@@ -81,6 +81,9 @@ def create_booking():
     if not isinstance(time_slots, list) or not time_slots:
         return jsonify({'error': 'time_slots must be a non-empty list of strings'}), 400
 
+    if len(time_slots) > 3:
+        return jsonify({'error': 'El límite máximo de reserva es de 3 horas por turno.'}), 400
+
     try:
         booking_date = datetime.strptime(date_str, "%Y-%m-%d").date()
     except ValueError:
@@ -132,6 +135,8 @@ def create_booking():
         import json
         companions_json = json.dumps(companions_list, ensure_ascii=False) if companions_list else None
 
+        booker_uuid = request.user.uuid if hasattr(request, 'user') and request.user else None
+
         for slot in time_slots:
             new_booking = BookingModel(
                 room_id=room_id,
@@ -142,12 +147,46 @@ def create_booking():
                 user_phone=user_phone,
                 user_tuition=user_tuition,
                 purpose=purpose,
-                attendees=attendees,
+                attendees=1,  # Fila principal representa al titular (1 asistente)
                 companions=companions_json,
-                idempotency_key=f"{idempotency_key}_{slot}"
+                idempotency_key=f"{idempotency_key}_{slot}",
+                created_by_uuid=None
             )
             db.session.add(new_booking)
             created_records.append(new_booking)
+
+            for idx, companion in enumerate(companions_list):
+                comp_email = companion.get('email', '')
+                comp_name = companion.get('name', '')
+
+                # Buscar info del colega si está registrado
+                comp_user = UserModel.query.filter_by(email=comp_email, deleted_at=None).first() if comp_email else None
+                comp_tuition = ''
+                comp_phone = ''
+                if comp_user:
+                    from models.professional import ProfessionalModel
+                    comp_prof = ProfessionalModel.query.filter_by(uuid_user=comp_user.uuid, deleted_at=None).first()
+                    if comp_prof:
+                        comp_tuition = comp_prof.tuition or ''
+                        comp_phone = comp_prof.phone or ''
+
+                comp_id_str = comp_email if comp_email else f"idx_{idx}"
+                comp_booking = BookingModel(
+                    room_id=room_id,
+                    booking_date=booking_date,
+                    time_slot=slot,
+                    user_name=comp_name,
+                    user_email=comp_email,
+                    user_phone=comp_phone,
+                    user_tuition=comp_tuition,
+                    purpose=purpose,
+                    attendees=1,  # Fila del acompañante representa 1 asistente
+                    companions=None,
+                    idempotency_key=f"{idempotency_key}_{slot}_comp_{comp_id_str}",
+                    created_by_uuid=booker_uuid
+                )
+                db.session.add(comp_booking)
+                created_records.append(comp_booking)
 
         db.session.commit()
         return jsonify({
@@ -327,4 +366,98 @@ def get_lawyers_list():
         ]), 200
     except Exception as e:
         return jsonify({'error': str(e)}), 500
+
+
+@booking_bp.route('/bookings/my-bookings', methods=['GET'])
+@token_required
+@access_required('book_rooms')
+def get_my_bookings():
+    date_str = request.args.get('date')
+    user_email = request.user.email
+    
+    try:
+        query = BookingModel.query.filter(db.func.lower(BookingModel.user_email) == user_email.lower())
+        
+        if date_str:
+            try:
+                booking_date = datetime.strptime(date_str, "%Y-%m-%d").date()
+                query = query.filter(BookingModel.booking_date == booking_date)
+            except ValueError:
+                return jsonify({'error': 'Invalid date format. Use YYYY-MM-DD.'}), 400
+        else:
+            today = datetime.utcnow().date()
+            query = query.filter(BookingModel.booking_date >= today)
+            
+        bookings = query.order_by(BookingModel.booking_date.asc(), BookingModel.time_slot.asc()).all()
+        
+        # Get room names
+        room_ids = {b.room_id for b in bookings if b.room_id}
+        room_map = {}
+        if room_ids:
+            rooms = RoomModel.query.filter(RoomModel.id.in_(list(room_ids))).all()
+            room_map = {str(r.id): r.name for r in rooms}
+            
+        result = []
+        for b in bookings:
+            data = b.to_json()
+            data['room_name'] = room_map.get(str(b.room_id), 'Sala de Coworking')
+            result.append(data)
+            
+        return jsonify(result), 200
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+@booking_bp.route('/bookings/<int:booking_id>', methods=['DELETE'])
+@token_required
+@access_required('book_rooms')
+def delete_booking(booking_id):
+    user_email = request.user.email
+    user_uuid = request.user.uuid if hasattr(request.user, 'uuid') else None
+    
+    # Check if the user is an admin or dev
+    is_admin = False
+    for profile in request.user.profiles:
+        if profile.name.lower() in ['admin', 'administrador', 'dev']:
+            is_admin = True
+            break
+            
+    try:
+        booking = BookingModel.query.get(booking_id)
+        if not booking:
+            return jsonify({'error': 'Booking not found.'}), 404
+            
+        # Extract the base prefix of the booking's idempotency_key
+        # For example, if key is '1-2026-06-04-12345-9876_08:00', the base prefix is '1-2026-06-04-12345-9876'
+        base_key = booking.idempotency_key.split('_')[0]
+        
+        # Query all rows in this booking group
+        group_bookings = BookingModel.query.filter(BookingModel.idempotency_key.like(f"{base_key}%")).all()
+        
+        if not group_bookings:
+            return jsonify({'error': 'Booking group not found.'}), 404
+            
+        # Check if user is authorized to delete this group
+        authorized = is_admin
+        if not authorized:
+            for gb in group_bookings:
+                if gb.user_email.lower() == user_email.lower() or (gb.created_by_uuid and gb.created_by_uuid == user_uuid):
+                    authorized = True
+                    break
+                    
+        if not authorized:
+            return jsonify({'error': 'You are not authorized to cancel this booking.'}), 403
+            
+        # Delete all bookings in the group
+        for gb in group_bookings:
+            db.session.delete(gb)
+            
+        db.session.commit()
+        return jsonify({'message': 'Booking cancelled successfully.'}), 200
+        
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({'error': str(e)}), 500
+
+
 

@@ -16,6 +16,7 @@ class BookingModel(db.Model):
     attendees = db.Column(db.Integer, nullable=False, default=1)
     companions = db.Column(db.Text, nullable=True)
     idempotency_key = db.Column(db.String(255), unique=True, nullable=False)
+    created_by_uuid = db.Column(db.String(36), nullable=True)
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
 
     def get_companions(self):
@@ -48,6 +49,7 @@ class BookingModel(db.Model):
             'attendees': self.attendees,
             'companions': self.get_companions(),
             'idempotency_key': self.idempotency_key,
+            'created_by_uuid': self.created_by_uuid,
             'created_at': self.created_at.isoformat() if self.created_at else None
         }
 
