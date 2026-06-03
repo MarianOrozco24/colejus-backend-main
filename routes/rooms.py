@@ -3,6 +3,8 @@ from config.config import db
 from models.room import RoomModel
 from utils.decorators import token_required, access_required
 from datetime import datetime
+import os
+import uuid
 
 rooms_bp = Blueprint('rooms', __name__)
 
@@ -129,3 +131,34 @@ def delete_room(room_id):
     except Exception as e:
         db.session.rollback()
         return jsonify({'error': str(e)}), 500
+
+@rooms_bp.route('/rooms/upload-image', methods=['POST'])
+@token_required
+@access_required('manage_rooms')
+def upload_room_image():
+    """Upload an image for a coworking room."""
+    if 'image' not in request.files:
+        return jsonify({'error': 'No image file provided'}), 400
+
+    file = request.files['image']
+    if file.filename == '':
+        return jsonify({'error': 'No selected file'}), 400
+
+    allowed_extensions = {'png', 'jpg', 'jpeg', 'gif', 'webp'}
+    ext = os.path.splitext(file.filename)[1].lower()
+    if not ext or ext[1:] not in allowed_extensions:
+        return jsonify({'error': 'Allowed file types are: png, jpg, jpeg, gif, webp'}), 400
+
+    try:
+        backend_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        upload_folder = os.path.join(backend_root, 'static', 'uploads')
+        os.makedirs(upload_folder, exist_ok=True)
+
+        filename = f"{uuid.uuid4().hex}{ext}"
+        file_path = os.path.join(upload_folder, filename)
+        file.save(file_path)
+
+        image_url = f"/static/uploads/{filename}"
+        return jsonify({'image_url': image_url}), 200
+    except Exception as e:
+        return jsonify({'error': f'Failed to save image: {str(e)}'}), 500
