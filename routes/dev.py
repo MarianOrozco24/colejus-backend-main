@@ -355,3 +355,91 @@ def edit_user_dev():
     except Exception as e:
         db.session.rollback()
         return jsonify({'error': str(e)}), 400
+
+@dev_bp.route('/dev/users/<string:uuid>', methods=['DELETE'])
+@jwt_required()
+@token_required
+@access_required('manage_users')
+def delete_user_dev(uuid):
+    user = UserModel.query.get(uuid)
+    if not user:
+        return jsonify({'error': 'User not found'}), 404
+        
+    try:
+        # Unlink from ProfessionalModel
+        professionals = ProfessionalModel.query.filter_by(uuid_user=uuid).all()
+        for prof in professionals:
+            prof.uuid_user = None
+            db.session.add(prof)
+            
+        # Delete related LawyerPaymentModel records
+        from models.lawyer_payment import LawyerPaymentModel
+        LawyerPaymentModel.query.filter_by(uuid_user=uuid).delete()
+        
+        # Clear profiles relationship to clean up association table
+        user.profiles = []
+        
+        # Delete user
+        db.session.delete(user)
+        db.session.commit()
+        return jsonify({'message': 'User deleted successfully'}), 200
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({'error': str(e)}), 400
+
+@dev_bp.route('/dev/profiles/<string:uuid>', methods=['DELETE'])
+@jwt_required()
+@token_required
+@access_required('manage_profiles')
+def delete_profile_dev(uuid):
+    profile = ProfileModel.query.get(uuid)
+    if not profile:
+        return jsonify({'error': 'Profile not found'}), 404
+        
+    try:
+        profile.users = []
+        profile.accesses = []
+        db.session.delete(profile)
+        db.session.commit()
+        return jsonify({'message': 'Profile deleted successfully'}), 200
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({'error': str(e)}), 400
+
+@dev_bp.route('/dev/accesses/<string:uuid>', methods=['DELETE'])
+@jwt_required()
+@token_required
+@access_required('manage_profiles')
+def delete_access_dev(uuid):
+    access = AccessModel.query.get(uuid)
+    if not access:
+        return jsonify({'error': 'Access not found'}), 404
+        
+    try:
+        # Delete association rows in profiles_accesses
+        from models.profile_access import profiles_accesses
+        db.session.execute(profiles_accesses.delete().where(profiles_accesses.c.access_uuid == uuid))
+        
+        # Delete the access
+        db.session.delete(access)
+        db.session.commit()
+        return jsonify({'message': 'Permission deleted successfully'}), 200
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({'error': str(e)}), 400
+
+@dev_bp.route('/dev/accesses/create', methods=['POST'])
+@jwt_required()
+@token_required
+@access_required('manage_profiles')
+def create_access_dev():
+    data = request.json
+    try:
+        new_access = AccessModel.from_json(data)
+        db.session.add(new_access)
+        db.session.commit()
+        return jsonify(new_access.to_json()), 201
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({'error': str(e)}), 400
+
