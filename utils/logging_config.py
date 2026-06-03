@@ -4,6 +4,15 @@ import time
 from collections import deque
 import queue
 import datetime
+from sqlalchemy.engine import Engine
+from sqlalchemy import event
+
+# Configuración de Zona Horaria de Argentina (UTC-3)
+arg_tz = datetime.timezone(datetime.timedelta(hours=-3))
+
+def argentina_time_converter(secs):
+    # Desplazamiento de 3 horas para Argentina (3 * 3600 = 10800 segundos)
+    return time.gmtime(secs - 10800)
 
 # Cola para almacenar logs en tiempo real para SSE
 log_queue = queue.Queue(maxsize=100)
@@ -19,13 +28,13 @@ class DailyRotatingFileHandler(logging.FileHandler):
         self.prefix = prefix
         self.suffix = suffix
         self.backupCount = backupCount
-        self.current_date = datetime.datetime.now().strftime("%Y%m%d")
+        self.current_date = datetime.datetime.now(arg_tz).strftime("%Y%m%d")
         
         filename = os.path.join(log_dir, f"{prefix}{self.current_date}{suffix}")
         super().__init__(filename, encoding=encoding)
 
     def emit(self, record):
-        current_date_check = datetime.datetime.now().strftime("%Y%m%d")
+        current_date_check = datetime.datetime.now(arg_tz).strftime("%Y%m%d")
         if self.current_date != current_date_check:
             self.current_date = current_date_check
             self.close()
@@ -73,6 +82,9 @@ class QueueHandler(logging.Handler):
             self.handleError(record)
 
 def setup_logging(app):
+    # Aplicar conversor de zona horaria de Argentina a todos los formatters de logs
+    logging.Formatter.converter = argentina_time_converter
+
     log_dir = os.path.join(app.root_path, 'logs')
     if not os.path.exists(log_dir):
         os.makedirs(log_dir)
@@ -96,6 +108,24 @@ def setup_logging(app):
     # También añadir a Flask app logger
     app.logger.addHandler(file_handler)
     app.logger.addHandler(q_handler)
+
+    # Configure database error logging
+    logging.getLogger('sqlalchemy').setLevel(logging.WARNING)
+    db_err_logger = logging.getLogger('sqlalchemy.error')
+
+    @event.listens_for(Engine, "handle_error")
+    def handle_db_error(exception_context):
+        stmt = exception_context.statement
+        params = exception_context.parameters
+        orig_exc = exception_context.original_exception
+        sqla_exc = exception_context.sqlalchemy_exception
+
+        db_err_logger.error(
+            f"Database Error: {sqla_exc or orig_exc}\n"
+            f"SQL Statement: {stmt}\n"
+            f"Parameters: {params}",
+            exc_info=sqla_exc or orig_exc
+        )
 
 def get_log_stream():
     while True:
