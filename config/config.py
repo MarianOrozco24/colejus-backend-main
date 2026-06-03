@@ -7,6 +7,7 @@ db = SQLAlchemy()
 jwt = JWTManager()
 
 def init_db(app):
+    print("=== INICIANDO BASE DE DATOS ===")
     username = os.environ.get('MYSQL_USER')
     password = os.environ.get('MYSQL_PASSWORD')
     host = os.environ.get('MYSQL_HOST')

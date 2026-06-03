@@ -7,6 +7,7 @@ def _boolenv(name, default=False):
     return os.getenv(name, str(default)).strip().lower() in ("1","true","yes","on")
 
 def init_mail(app):
+
     server   = os.getenv('MAIL_SERVER', '').strip()
     port     = int(os.getenv('MAIL_PORT', '587').strip())
     use_tls  = _boolenv('MAIL_USE_TLS', True)
@@ -14,6 +15,8 @@ def init_mail(app):
     user     = (os.getenv('MAIL_USERNAME') or '').strip()
     pwd      = (os.getenv('MAIL_PASSWORD') or '').strip()
     sender   = (os.getenv('MAIL_FROM') or 'payments@colejus.com.ar').strip()
+
+    print("=== INICIALIZANDO CONFIG MAIL ===")
 
     # Validaciones claras para evitar 535 silencioso
     if not server:

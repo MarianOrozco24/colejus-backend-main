@@ -11,14 +11,12 @@ def init_mp():
     global sdk
     # Get the access token from environment variables
     access_token = os.getenv("MERCADO_PAGO_ACCESS_TOKEN")
+    print("=== INICIANDO MERCADO PAGO ===")
     
-    print("\nMP Initialization Debug:")
-    print("------------------------")
-    print(f"Using token: {access_token}")
     try:
-        print(access_token)
-        # if not access_token:
-        #     raise ValueError("Token missin")
+        # print(access_token)
+        if not access_token:
+            raise ValueError("Token missin")
     except Exception as error:
         print("Error de token", error)
         

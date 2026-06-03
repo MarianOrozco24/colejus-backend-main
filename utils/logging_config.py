@@ -10,7 +10,9 @@ from sqlalchemy import event
 # Configuración de Zona Horaria de Argentina (UTC-3)
 arg_tz = datetime.timezone(datetime.timedelta(hours=-3))
 
-def argentina_time_converter(secs):
+def argentina_time_converter(*args):
+    # args puede ser (secs,) o (formatter, secs) si se vincula como método de instancia
+    secs = args[-1] if args else time.time()
     # Desplazamiento de 3 horas para Argentina (3 * 3600 = 10800 segundos)
     return time.gmtime(secs - 10800)
 
