@@ -166,6 +166,31 @@ def get_membership_fees():
 @access_required('view_lawyer_payments')
 def validate_payment():
     try:
+        # Check global config bypass first
+        try:
+            from models.config import SystemConfigModel
+            bypass_record = SystemConfigModel.query.get('disable_membership_validation')
+            if bypass_record and bypass_record.value == 'true':
+                uuid_user = request.args.get('uuid_user')
+                if not uuid_user:
+                    uuid_user = request.user.uuid
+                user = UserModel.query.filter_by(uuid=uuid_user, deleted_at=None).first()
+                return jsonify({
+                    'status': 'ok',
+                    'paid': True,
+                    'balance': 0.0,
+                    'total_paid': 0.0,
+                    'total_owed': 0.0,
+                    'months_owed': 0,
+                    'user': {
+                        'uuid': user.uuid if user else '',
+                        'name': user.name if user else '',
+                        'email': user.email if user else ''
+                    }
+                }), 200
+        except Exception:
+            pass
+
         uuid_user = request.args.get('uuid_user')
         
         is_admin = False

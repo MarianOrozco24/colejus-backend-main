@@ -48,6 +48,67 @@ def get_occupied_slots():
     except Exception as e:
         return jsonify({'error': str(e)}), 500
 
+def is_lawyer_unpaid(user):
+    # Check global config bypass first
+    try:
+        from models.config import SystemConfigModel
+        bypass_record = SystemConfigModel.query.get('disable_membership_validation')
+        if bypass_record and bypass_record.value == 'true':
+            return False
+    except Exception:
+        pass
+
+    if not user:
+        return False
+        
+    is_lawyer = False
+    is_admin_or_dev = False
+    for profile in user.profiles:
+        name_lower = profile.name.lower()
+        if name_lower == 'lawyer':
+            is_lawyer = True
+        elif name_lower in ['admin', 'dev', 'administrador']:
+            is_admin_or_dev = True
+            
+    if not is_lawyer or is_admin_or_dev:
+        return False
+
+    try:
+        from models import LawyerPaymentModel, MembershipFeeModel
+        from datetime import date
+        
+        start_date = user.created_at.date() if user.created_at else datetime.utcnow().date()
+        end_date = datetime.utcnow().date()
+        
+        # Calcular rango de meses
+        months = []
+        current = date(start_date.year, start_date.month, 1)
+        target = date(end_date.year, end_date.month, 1)
+        while current <= target:
+            months.append(date(current.year, current.month, 1))
+            if current.month == 12:
+                current = date(current.year + 1, 1, 1)
+            else:
+                current = date(current.year, current.month + 1, 1)
+                
+        total_owed = 0.0
+        for m in months:
+            fee_record = MembershipFeeModel.query.filter(
+                MembershipFeeModel.effective_date <= m
+            ).order_by(MembershipFeeModel.effective_date.desc()).first()
+            
+            fee_val = fee_record.value if fee_record else 0.0
+            total_owed += fee_val
+
+        total_paid = db.session.query(db.func.sum(LawyerPaymentModel.value)).filter(
+            LawyerPaymentModel.uuid_user == user.uuid,
+            LawyerPaymentModel.description.in_(['Membresía', 'Membresia'])
+        ).scalar() or 0.0
+
+        return total_paid < total_owed
+    except Exception:
+        return False
+
 @booking_bp.route('/bookings', methods=['POST'])
 @token_required
 @access_required('book_rooms')
@@ -88,6 +149,10 @@ def create_booking():
         booking_date = datetime.strptime(date_str, "%Y-%m-%d").date()
     except ValueError:
         return jsonify({'error': 'Invalid date format. Use YYYY-MM-DD.'}), 400
+
+    # Validar pago de membresía si el switch de validación no está desactivado
+    if not data.get('bypass_validation', False) and is_lawyer_unpaid(request.user):
+        return jsonify({'error': 'No se pueden realizar reservas de sala. El abogado tiene cuotas de membresía pendientes.'}), 402
 
     # IDEMPOTENCIA: Verificar si ya existen reservas asociadas a esta key de cliente
     try:

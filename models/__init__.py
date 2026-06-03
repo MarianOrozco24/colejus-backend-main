@@ -20,6 +20,7 @@ from .booking import BookingModel
 from .lawyer_payment import LawyerPaymentModel
 from .membership_fee import MembershipFeeModel
 from .room import RoomModel
+from .config import SystemConfigModel
 
 __all__ = [
     'UserModel',
@@ -41,5 +42,6 @@ __all__ = [
     "BookingModel",
     "LawyerPaymentModel",
     "MembershipFeeModel",
-    "RoomModel"
+    "RoomModel",
+    "SystemConfigModel"
 ]

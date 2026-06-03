@@ -35,7 +35,7 @@ def create_room():
     if not data:
         return jsonify({'error': 'No input data provided'}), 400
 
-    required = ['name', 'capacity', 'price']
+    required = ['name', 'capacity']
     missing = [f for f in required if f not in data or not str(data[f]).strip()]
     if missing:
         return jsonify({'error': f'Missing required fields: {", ".join(missing)}'}), 400
@@ -51,7 +51,7 @@ def create_room():
         room = RoomModel(
             name=data['name'].strip(),
             capacity=capacity_val,
-            price=float(data['price']),
+            price=float(data.get('price', 0.0) or 0.0),
             image=data.get('image', '').strip() or None,
             description=data.get('description', '').strip() or None,
             is_active=data.get('is_active', True)
@@ -94,7 +94,7 @@ def update_room(room_id):
             except ValueError:
                 return jsonify({'error': 'Capacity must be a valid integer'}), 400
         if 'price' in data:
-            room.price = float(data['price'])
+            room.price = float(data['price']) if data['price'] else 0.0
         if 'image' in data:
             room.image = data['image'].strip() or None
         if 'description' in data:
