@@ -443,3 +443,40 @@ def create_access_dev():
         db.session.rollback()
         return jsonify({'error': str(e)}), 400
 
+@dev_bp.route('/dev/config', methods=['GET'])
+@jwt_required()
+@token_required
+@access_required('manage_dev')
+def get_configs():
+    from models.config import SystemConfigModel
+    configs = SystemConfigModel.query.all()
+    return jsonify({c.key: c.value for c in configs}), 200
+
+@dev_bp.route('/dev/config', methods=['POST'])
+@jwt_required()
+@token_required
+@access_required('manage_dev')
+def update_config():
+    data = request.json
+    if not data or 'key' not in data or 'value' not in data:
+        return jsonify({'error': 'key and value are required'}), 400
+    
+    key = data['key']
+    value = str(data['value'])
+    
+    from models.config import SystemConfigModel
+    config = SystemConfigModel.query.get(key)
+    if not config:
+        config = SystemConfigModel(key=key, value=value)
+        db.session.add(config)
+    else:
+        config.value = value
+        
+    try:
+        db.session.commit()
+        return jsonify(config.to_json()), 200
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({'error': str(e)}), 500
+
+

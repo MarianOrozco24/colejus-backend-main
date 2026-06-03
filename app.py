@@ -225,6 +225,23 @@ with app.app_context():
         db.session.rollback()
         app.logger.error(f"Error seeding initial rooms: {e}")
 
+    # 4. Seed default system configurations
+    try:
+        from models.config import SystemConfigModel
+        default_configs = {
+            'disable_membership_validation': 'false'
+        }
+        for k, v in default_configs.items():
+            conf = SystemConfigModel.query.filter_by(key=k).first()
+            if not conf:
+                new_conf = SystemConfigModel(key=k, value=v)
+                db.session.add(new_conf)
+        db.session.commit()
+        app.logger.info("Seeded initial configurations.")
+    except Exception as e:
+        db.session.rollback()
+        app.logger.error(f"Error seeding configurations: {e}")
+
 # Inicializar y registrar todos los blueprints
 init_app(app)
 ip_manager_cache.init_app(app)
