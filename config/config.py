@@ -2,9 +2,11 @@ import os
 from flask_sqlalchemy import SQLAlchemy
 from flask_jwt_extended import JWTManager
 from flask_cors import CORS
+from flask_migrate import Migrate
 
 db = SQLAlchemy()
 jwt = JWTManager()
+migrate = Migrate()
 
 def init_db(app):
     print("=== INICIANDO BASE DE DATOS ===")
@@ -16,6 +18,7 @@ def init_db(app):
     app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
     app.config['DEBUG'] = True
     db.init_app(app)
+    migrate.init_app(app, db)
 
 def init_jwt(app):
     # Configurar la clave secreta para JWT desde el archivo .env

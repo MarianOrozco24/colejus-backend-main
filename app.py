@@ -74,6 +74,7 @@ def track_ip_stats(response):
 
 # Crea las tablas en la base de datos
 with app.app_context():
+    import models
     db.create_all()
     from models.profile import ProfileModel
     from models.access import AccessModel
