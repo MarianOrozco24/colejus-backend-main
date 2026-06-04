@@ -173,6 +173,29 @@ def create_booking():
         if not room:
             return jsonify({'error': 'Room not found.'}), 404
 
+        # COMPROBACIÓN DE RESERVAS SIMULTÁNEAS (Overlapping/Double-booking check)
+        companions_list = data.get('companions', [])
+        all_emails = [user_email] + [c.get('email', '') for c in companions_list if c.get('email')]
+        all_emails = [email.strip().lower() for email in all_emails if email.strip()]
+
+        for email in all_emails:
+            existing_for_user = BookingModel.query.filter(
+                db.func.lower(BookingModel.user_email) == email,
+                BookingModel.booking_date == booking_date,
+                BookingModel.time_slot.in_(time_slots)
+            ).all()
+            if existing_for_user:
+                conflicting_slots = sorted(list({b.time_slot for b in existing_for_user}))
+                if email == user_email.lower():
+                    return jsonify({
+                        'error': f'Ya tienes una reserva registrada para el día {booking_date.strftime("%d/%m/%Y")} en el/los horario(s): {", ".join(conflicting_slots)}.'
+                    }), 409
+                else:
+                    comp_name = next((c.get('name') for c in companions_list if c.get('email', '').strip().lower() == email), email)
+                    return jsonify({
+                        'error': f'El colega {comp_name} ya tiene una reserva registrada para el día {booking_date.strftime("%d/%m/%Y")} en el/los horario(s): {", ".join(conflicting_slots)}.'
+                    }), 409
+
         if attendees > room.capacity:
             return jsonify({'error': f'Attendees count ({attendees}) exceeds maximum capacity of the room ({room.capacity}).'}), 400
 
@@ -196,7 +219,6 @@ def create_booking():
 
         # Crear registros (uno por slot) asociando el idempotency_key modificado
         created_records = []
-        companions_list = data.get('companions', [])
         import json
         companions_json = json.dumps(companions_list, ensure_ascii=False) if companions_list else None
 
