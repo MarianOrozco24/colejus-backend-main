@@ -2675,9 +2675,9 @@ def check_derecho_fijo():
 
 
 @forms_bp.route('/forms/update_derecho_fijo', methods=['POST'])
-# @jwt_required()
-# @token_required
-# @access_required('')
+@jwt_required()
+@token_required
+@access_required('manage_collection_admin')
 def update_derecho_fijo():
     try:
         data = request.get_json()

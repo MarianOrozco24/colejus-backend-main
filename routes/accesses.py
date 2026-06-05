@@ -8,9 +8,9 @@ from flask_jwt_extended import jwt_required
 access_bp = Blueprint('access_bp', __name__)
 
 @access_bp.route('/accesses', methods=['POST'])
-# @jwt_required()
-# @token_required 
-# @access_required('manage_accesses')
+@jwt_required()
+@token_required 
+@access_required('manage_accesses')
 def create_access():
     data = request.json
     new_access = AccessModel.from_json(data) 
@@ -21,7 +21,7 @@ def create_access():
 @access_bp.route('/accesses', methods=['GET'])
 @jwt_required()
 @token_required 
-# @access_required('view_accesses')
+@access_required('view_accesses')
 def get_all_accesses():
     accesses = AccessModel.query.filter(AccessModel.deleted_at == None, AccessModel.uuid_module != None).all()
     accesses_data = [access.to_json() for access in accesses]
@@ -30,7 +30,7 @@ def get_all_accesses():
 @access_bp.route('/accesses/<uuid>', methods=['GET'])
 @jwt_required()
 @token_required 
-# @access_required('view_accesses')
+@access_required('view_accesses')
 def get_access(uuid):
     access = AccessModel.query.filter_by(uuid=uuid, deleted_at=None).first()
     if access:

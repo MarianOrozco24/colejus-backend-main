@@ -12,6 +12,7 @@ receipts_bp = Blueprint('receipts_bp', __name__)
 @receipts_bp.route('/forms/receipts', methods=['GET'])
 @jwt_required()
 @token_required
+@access_required('view_receipts')
 def get_all_receipts():
     try:    
         # Filtramos solos los que tengan id de pagos unicos

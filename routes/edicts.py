@@ -11,9 +11,9 @@ import os
 edicts_bp = Blueprint('edicts_bp', __name__)
 
 @edicts_bp.route('/edicts', methods=['POST'])
-# @jwt_required()
-# @token_required
-# @access_required('manage_edicts')
+@jwt_required()
+@token_required
+@access_required('manage_edicts')
 def create_edict():
     """Create a new edict entry with tags."""
     data = request.json

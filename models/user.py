@@ -42,9 +42,14 @@ class UserModel(db.Model):
             }
             for profile in self.profiles
         ]
+        # Try to retrieve linked professional's name
+        from models.professional import ProfessionalModel
+        professional = ProfessionalModel.query.filter_by(uuid_user=self.uuid, deleted_at=None).first()
+        display_name = professional.name if professional else self.name
+
         return {
             'uuid': self.uuid,
-            'name': self.name,
+            'name': display_name,
             'email': self.email,
             'auth_token': self.auth_token,
             'profiles': profiles,

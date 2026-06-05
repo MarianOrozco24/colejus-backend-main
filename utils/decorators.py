@@ -1,6 +1,6 @@
 from functools import wraps
 from flask import request, jsonify
-from flask_jwt_extended import get_jwt_identity, get_jwt
+from flask_jwt_extended import get_jwt_identity, get_jwt, verify_jwt_in_request
 from models import UserModel
 from datetime import datetime, timezone
 
@@ -13,6 +13,7 @@ def token_required(f):
             return jsonify({'message': 'Token is missing!'}), 401
         
         try:
+            verify_jwt_in_request()
             email = get_jwt_identity()
 
             claims = get_jwt()
@@ -43,9 +44,14 @@ def access_required(access_name):
             
             has_access = False
             for profile in user.profiles:
-                if profile.name.lower() == 'dev':
+                p_name = profile.name.lower()
+                if p_name == 'dev':
                     has_access = True
                     break
+                
+
+                
+                # Check database granted accesses for other profiles (Admin, etc.)
                 for access in profile.accesses:
                     if access.name == access_name:
                         has_access = True

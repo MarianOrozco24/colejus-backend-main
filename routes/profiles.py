@@ -8,9 +8,9 @@ from flask_jwt_extended import jwt_required
 profile_bp = Blueprint('profile_bp', __name__)
 
 @profile_bp.route('/profiles', methods=['POST'])
-# @jwt_required()
-# @token_required 
-# @access_required('manage_profiles')
+@jwt_required()
+@token_required 
+@access_required('manage_profiles')
 def create_profile():
     data = request.json
     new_profile = ProfileModel.from_json(data)

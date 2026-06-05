@@ -1,6 +1,6 @@
 from datetime import datetime, timedelta
 from flask import Blueprint, request, jsonify
-from models import UserModel, ProfileModel
+from models import UserModel, ProfileModel, ProfessionalModel
 from config.config import db
 from flask_jwt_extended import create_access_token, jwt_required, get_jwt_identity
 from werkzeug.security import generate_password_hash
@@ -35,6 +35,17 @@ def create_user():
             
         user.profiles = profiles
         db.session.add(user)
+
+        # Check and associate professional if tuition/matricula is provided
+        tuition = data.get('tuition') or data.get('matricula')
+        if tuition:
+            professional = ProfessionalModel.query.filter_by(tuition=str(tuition), deleted_at=None).first()
+            if professional:
+                if professional.uuid_user and professional.uuid_user != user.uuid:
+                    return {'error': 'Este perfil profesional ya está vinculado a otro usuario.'}, 400
+                professional.uuid_user = user.uuid
+                db.session.add(professional)
+
         db.session.commit()
         return {'user_uuid': user.uuid}, 201
     except Exception as e:
@@ -45,20 +56,33 @@ def create_user():
 @auth_bp.route('/login', methods=['POST'])
 def login():
     data = request.json
-    email = data.get('email')
+    email_or_tuition = data.get('tuition_or_email')
     password = data.get('password')
 
-    if not email or not password:
-        return {'error': 'email and password are required'}, 400
+    if not email_or_tuition or not password:
+        return {'error': 'tuition_or_email and password are required'}, 400
 
     try:
-        user = UserModel.query.filter_by(email=email, deleted_at=None).first()
+        # First try to find user by email directly (handles emails and special usernames like admin, dev, etc.)
+        user = UserModel.query.filter_by(email=email_or_tuition, deleted_at=None).first()
+        
+        if not user:
+            # Check if it matches a professional's tuition/enrollment number (stripping dots and spaces)
+            clean_input = str(email_or_tuition).replace('.', '').replace(' ', '')
+            from sqlalchemy import func
+            professional = ProfessionalModel.query.filter(
+                func.replace(func.replace(ProfessionalModel.tuition, ' ', ''), '.', '') == clean_input,
+                ProfessionalModel.deleted_at == None
+            ).first()
+            if professional and professional.uuid_user:
+                user = UserModel.query.filter_by(uuid=professional.uuid_user, deleted_at=None).first()
 
         if user is None or not user.check_password(password):
-            return {'error': 'Invalid email or password'}, 401
+            return {'error': 'Invalid email, tuition or password'}, 401
+            
         expires = timedelta(days=1)
         additional_claims = {"timestamp": datetime.utcnow().timestamp()}
-        access_token = create_access_token(identity=email, expires_delta=expires, additional_claims=additional_claims)
+        access_token = create_access_token(identity=user.email, expires_delta=expires, additional_claims=additional_claims)
             
         token_expiration_date = datetime.utcnow() + expires
         user.token_expiration_date = token_expiration_date
