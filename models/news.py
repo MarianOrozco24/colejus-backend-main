@@ -52,6 +52,7 @@ class NewsModel(db.Model):
             'tags': [tag.to_json() for tag in self.tags],
             'content': self.content,
             'image_path': self.image_path,
+            'is_active': self.is_active,
             'created_at': self.created_at,
             'updated_at': self.updated_at,
         }

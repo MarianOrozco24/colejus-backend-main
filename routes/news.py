@@ -125,7 +125,12 @@ def get_all_news():
         per_page = request.args.get('per_page', 10, type=int)
         tag_filter = request.args.get('tag', None)  # Optional tag filter
 
+        active_only = request.args.get('active_only', 'false').lower() in ('true', '1')
+
         query = NewsModel.query.filter_by(deleted_at=None).order_by(desc(NewsModel.created_at))
+
+        if active_only:
+            query = query.filter(NewsModel.is_active.is_(True))
 
         if tag_filter:
             query = query.join(NewsModel.tags).filter(TagModel.name.ilike(f'%{tag_filter}%'))
