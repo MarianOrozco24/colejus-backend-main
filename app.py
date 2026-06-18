@@ -37,10 +37,16 @@ init_jwt(app)
 init_cors(app) # En caso de entrar en modo desarrollador comentar y volver al comando basico de cors
 init_mail(app) # Inicializo la configuración de mail
 
-from flask import request, abort
+import os
+from flask import request, abort, send_from_directory
 from models.ip_manager import IPRegistry
 from datetime import datetime, timedelta
 from utils.ip_manager_cache import ip_manager_cache
+
+@app.route('/uploads/<path:filename>')
+def serve_uploads(filename):
+    uploads_dir = os.path.join(app.root_path, 'uploads')
+    return send_from_directory(uploads_dir, filename)
 
 @app.before_request
 def check_ip_block():
