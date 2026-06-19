@@ -15,6 +15,7 @@ class NewsModel(db.Model):
     tags = db.Column(db.Text, nullable=True)  # Use JSON string or comma-separated tags
     content = db.Column(LONGTEXT, nullable=False)  # Rich-text content from Quill
     is_active = db.Column(db.Boolean, default=True)
+    image_path = db.Column(db.String(255), nullable=True)
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
     updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
     deleted_at = db.Column(db.DateTime, nullable=True)
@@ -38,6 +39,7 @@ class NewsModel(db.Model):
             reading_duration=json_data.get('reading_duration'),
             tags=json_data.get('tags'),
             content=json_data.get('content'),
+            image_path=json_data.get('image_path'),
         )
 
     def to_json(self):
@@ -49,6 +51,8 @@ class NewsModel(db.Model):
             'reading_duration': self.reading_duration,
             'tags': [tag.to_json() for tag in self.tags],
             'content': self.content,
+            'image_path': self.image_path,
+            'is_active': self.is_active,
             'created_at': self.created_at,
             'updated_at': self.updated_at,
         }

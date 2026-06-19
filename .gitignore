@@ -179,3 +179,12 @@ logs_confirmacion_pagos_presenciales.txt
 
 # Logs
 logs/
+
+*.png
+*.jpg
+*.jpeg
+*.gif
+*.webp
+
+# Uploads
+uploads/
