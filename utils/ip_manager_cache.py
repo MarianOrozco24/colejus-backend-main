@@ -48,41 +48,67 @@ class IPCacheManager:
                 logger.warning(f"Error cargando el historial de IPs a caché: {e}")
 
     def get_or_load_ip(self, ip_address):
-        if ip_address in self.ip_cache:
-            return self.ip_cache[ip_address]['record']
+        record_data = None
         
-        # Load from DB
-        with self.lock:
-            with self.app.app_context():
-                ip_record = IPRegistry.query.filter_by(ip=ip_address).first()
-                if ip_record:
-                    data = ip_record.to_dict()
-                    # Convert string dates back to datetime for internal use
-                    data['last_seen'] = datetime.fromisoformat(data['last_seen'])
-                    data['last_minute_reset'] = ip_record.last_minute_reset
-                    data['last_month_reset'] = ip_record.last_month_reset
-                    self.ip_cache[ip_address] = {'record': data, 'dirty': False, 'new': False}
-                    return data
-                
-                # Fetch fresh location
-                location_data = get_ip_location(ip_address)
-                now = datetime.utcnow()
-                data = {
-                    'ip': ip_address,
-                    'last_seen': now,
-                    'requests_minute': 0,
-                    'requests_month': 0,
-                    'last_minute_reset': now,
-                    'last_month_reset': now,
-                    'pais': location_data.get('pais', 'Desconocido'),
-                    'ciudad': location_data.get('ciudad', 'Desconocido'),
-                    'continente': location_data.get('continente', 'Desconocido'),
-                    'proveedor': location_data.get('proveedor', 'Desconocido'),
-                    'dominio_proveedor': location_data.get('dominio_proveedor', 'Desconocido'),
-                    'is_blocked': False
-                }
-                self.ip_cache[ip_address] = {'record': data, 'dirty': True, 'new': True}
-                return data
+        if ip_address in self.ip_cache:
+            record_data = self.ip_cache[ip_address]['record']
+        else:
+            # Load from DB
+            with self.lock:
+                with self.app.app_context():
+                    ip_record = IPRegistry.query.filter_by(ip=ip_address).first()
+                    if ip_record:
+                        data = ip_record.to_dict()
+                        # Convert string dates back to datetime for internal use
+                        data['last_seen'] = datetime.fromisoformat(data['last_seen'])
+                        data['last_minute_reset'] = ip_record.last_minute_reset
+                        data['last_month_reset'] = ip_record.last_month_reset
+                        self.ip_cache[ip_address] = {'record': data, 'dirty': False, 'new': False}
+                        record_data = data
+                    else:
+                        # Fetch fresh location
+                        location_data = get_ip_location(ip_address)
+                        now = datetime.utcnow()
+                        data = {
+                            'ip': ip_address,
+                            'last_seen': now,
+                            'requests_minute': 0,
+                            'requests_month': 0,
+                            'last_minute_reset': now,
+                            'last_month_reset': now,
+                            'pais': location_data.get('pais', 'Desconocido'),
+                            'ciudad': location_data.get('ciudad', 'Desconocido'),
+                            'continente': location_data.get('continente', 'Desconocido'),
+                            'proveedor': location_data.get('proveedor', 'Desconocido'),
+                            'dominio_proveedor': location_data.get('dominio_proveedor', 'Desconocido'),
+                            'is_blocked': False,
+                            'geo_attempted': True
+                        }
+                        self.ip_cache[ip_address] = {'record': data, 'dirty': True, 'new': True}
+                        record_data = data
+
+        # Check if we should update Desconocido fields for an existing IP (cached or loaded from DB)
+        if record_data and ip_address not in ['127.0.0.1', '::1', 'localhost']:
+            if not record_data.get('geo_attempted'):
+                record_data['geo_attempted'] = True
+                has_desconocido = any(
+                    record_data.get(field) == 'Desconocido'
+                    for field in ['pais', 'ciudad', 'continente', 'proveedor', 'dominio_proveedor']
+                )
+                if has_desconocido:
+                    location_data = get_ip_location(ip_address)
+                    new_data_fetched = any(
+                        location_data.get(field) != 'Desconocido'
+                        for field in ['pais', 'ciudad', 'continente', 'proveedor', 'dominio_proveedor']
+                    )
+                    if new_data_fetched:
+                        with self.lock:
+                            for field in ['pais', 'ciudad', 'continente', 'proveedor', 'dominio_proveedor']:
+                                if location_data.get(field) != 'Desconocido':
+                                    record_data[field] = location_data[field]
+                            self.ip_cache[ip_address]['dirty'] = True
+
+        return record_data
 
     def track_request(self, ip_address):
         now = datetime.utcnow()
@@ -186,6 +212,12 @@ class IPCacheManager:
                             ip_record.last_minute_reset = record_data['last_minute_reset']
                             ip_record.last_month_reset = record_data['last_month_reset']
                             ip_record.is_blocked = record_data['is_blocked']
+                            # Sync updated geolocation data if any changed from Desconocido
+                            ip_record.pais = record_data['pais']
+                            ip_record.ciudad = record_data['ciudad']
+                            ip_record.continente = record_data['continente']
+                            ip_record.proveedor = record_data['proveedor']
+                            ip_record.dominio_proveedor = record_data['dominio_proveedor']
                     
                     info['dirty'] = False
                     
