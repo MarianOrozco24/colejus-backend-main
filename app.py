@@ -44,6 +44,7 @@ from datetime import datetime, timedelta
 from utils.ip_manager_cache import ip_manager_cache
 
 @app.route('/uploads/<path:filename>')
+@app.route('/api/uploads/<path:filename>')
 def serve_uploads(filename):
     uploads_dir = os.path.join(app.root_path, 'uploads')
     return send_from_directory(uploads_dir, filename)
