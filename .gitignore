@@ -172,6 +172,8 @@ cython_debug/
 logs_bcm.txt
 *.json
 
+logs_mp.txt
+
 logs_confirmacion_pagos_presenciales.txt
 
 
