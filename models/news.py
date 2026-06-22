@@ -15,6 +15,8 @@ class NewsModel(db.Model):
     tags = db.Column(db.Text, nullable=True)  # Use JSON string or comma-separated tags
     content = db.Column(LONGTEXT, nullable=False)  # Rich-text content from Quill
     is_active = db.Column(db.Boolean, default=True)
+    is_featured = db.Column(db.Boolean, default=False, nullable=False)
+    featured_order = db.Column(db.Integer, nullable=True)
     image_path = db.Column(db.String(255), nullable=True)
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
     updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
@@ -53,6 +55,8 @@ class NewsModel(db.Model):
             'content': self.content,
             'image_path': self.image_path,
             'is_active': self.is_active,
+            'is_featured': self.is_featured,
+            'featured_order': self.featured_order,
             'created_at': self.created_at,
             'updated_at': self.updated_at,
         }
