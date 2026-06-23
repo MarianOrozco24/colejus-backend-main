@@ -83,6 +83,19 @@ def track_ip_stats(response):
 with app.app_context():
     import models
     db.create_all()
+
+    # DB Schema Migration: Add room_type column to rooms table if it doesn't exist
+    try:
+        result = db.session.execute(db.text("SHOW COLUMNS FROM rooms LIKE 'room_type'")).fetchone()
+        if not result:
+            db.session.execute(db.text("ALTER TABLE rooms ADD COLUMN room_type VARCHAR(50) NOT NULL DEFAULT 'coworking'"))
+            db.session.execute(db.text("UPDATE rooms SET room_type = 'meeting' WHERE name LIKE '%Reuniones%' OR name LIKE '%SUM%'"))
+            db.session.commit()
+            app.logger.info("Database migration: Added room_type column to rooms and updated meeting rooms.")
+    except Exception as e:
+        db.session.rollback()
+        app.logger.error(f"Error executing room_type migration: {e}")
+
     from models.profile import ProfileModel
     from models.access import AccessModel
     from models.room import RoomModel
@@ -115,7 +128,10 @@ with app.app_context():
         'manage_integrantes': 'Crear, editar y eliminar integrantes',
         'book_rooms': 'Reservar salas de coworking',
         'view_rooms': 'Ver gestión de salas coworking',
-        'manage_rooms': 'Crear, editar y eliminar salas de coworking'
+        'manage_rooms': 'Crear, editar y eliminar salas de coworking',
+        'book_meeting_rooms': 'Reservar salas de reuniones',
+        'view_meeting_rooms': 'Ver gestión de salas de reuniones',
+        'manage_meeting_rooms': 'Crear, editar y eliminar salas de reuniones'
     }
 
     db_accesses = {}
@@ -159,7 +175,8 @@ with app.app_context():
             'view_integrantes',
             'view_lawyer_payments',
             'manage_lawyer_payments',
-            'book_rooms'
+            'book_rooms',
+            'book_meeting_rooms'
         ]
         for name in default_lawyer_accesses:
             acc = db_accesses.get(name)
@@ -184,7 +201,7 @@ with app.app_context():
             initial_rooms = [
                 RoomModel(
                     name='Sala de Reuniones Ejecutiva',
-                    capacity='10 personas',
+                    capacity=10,
                     price=1500.0,
                     image='/meeting_room_exec.png',
                     description='Ideal para reuniones de directorio, negociaciones, conciliaciones o presentaciones corporativas. Ambiente climatizado y privado.',
@@ -194,11 +211,12 @@ with app.app_context():
                         'Wi-Fi Simétrico de Alta Velocidad',
                         'Cámara para Videoconferencias'
                     ], ensure_ascii=False),
-                    is_active=True
+                    is_active=True,
+                    room_type='meeting'
                 ),
                 RoomModel(
                     name='SUM / Auditorio Multiuso',
-                    capacity='30 personas',
+                    capacity=30,
                     price=3000.0,
                     image='/auditorium_sum.png',
                     description='Perfecto para capacitaciones, charlas informativas, asambleas o talleres grupales. Mobiliario modular configurable.',
@@ -208,11 +226,12 @@ with app.app_context():
                         'Sistema de Audio & Micrófonos',
                         'Wi-Fi de Alta Velocidad'
                     ], ensure_ascii=False),
-                    is_active=True
+                    is_active=True,
+                    room_type='meeting'
                 ),
                 RoomModel(
                     name='Box de Enfoque Individual',
-                    capacity='1 persona',
+                    capacity=1,
                     price=500.0,
                     image='/individual_box.png',
                     description='Espacio optimizado para el trabajo individual concentrado, videollamadas privadas o estudio. Aislado acústicamente.',
@@ -222,7 +241,8 @@ with app.app_context():
                         'Ergonomía & Tomas de Carga Directa',
                         'Panel de Absorción Acústica'
                     ], ensure_ascii=False),
-                    is_active=True
+                    is_active=True,
+                    room_type='coworking'
                 )
             ]
             for room in initial_rooms:
