@@ -184,9 +184,20 @@ def create_booking():
     except ValueError:
         return jsonify({'error': 'Invalid date format. Use YYYY-MM-DD.'}), 400
 
-    # Validar pago de membresía si el switch de validación no está desactivado
-    if not data.get('bypass_validation', False) and is_lawyer_unpaid(request.user):
-        return jsonify({'error': 'No se pueden realizar reservas de sala. El abogado tiene cuotas de membresía pendientes.'}), 402
+    # Validar pago de membresía según tipo de sala
+    if not data.get('bypass_validation', False):
+        if room.room_type == 'meeting':
+            from services.membership_sync_service import can_user_book_meeting_room
+            if not can_user_book_meeting_room(request.user):
+                return jsonify({
+                    'error': (
+                        'Para reservar la sala de reuniones debe estar al día con la cuota del colegio. '
+                        'Acérquese a secretaría para regularizar su situación.'
+                    ),
+                    'code': 'MEMBERSHIP_DEBT',
+                }), 402
+        elif room.room_type == 'coworking' and is_lawyer_unpaid(request.user):
+            return jsonify({'error': 'No se pueden realizar reservas de sala. El abogado tiene cuotas de membresía pendientes.'}), 402
 
     # IDEMPOTENCIA: Verificar si ya existen reservas asociadas a esta key de cliente
     try:

@@ -131,7 +131,9 @@ with app.app_context():
         'manage_rooms': 'Crear, editar y eliminar salas de coworking',
         'book_meeting_rooms': 'Reservar salas de reuniones',
         'view_meeting_rooms': 'Ver gestión de salas de reuniones',
-        'manage_meeting_rooms': 'Crear, editar y eliminar salas de reuniones'
+        'manage_meeting_rooms': 'Crear, editar y eliminar salas de reuniones',
+        'view_membership_sync': 'Ver historial de sincronización de cuotas',
+        'manage_membership_sync': 'Sincronizar cuotas desde Excel/Sheets',
     }
 
     db_accesses = {}
