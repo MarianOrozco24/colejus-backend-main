@@ -120,6 +120,19 @@ class MembershipSyncService:
             ambiguous_count = 0
             blocked_count = 0
 
+            # Cargar todos los profesionales activos en memoria para lookup O(1)
+            all_professionals = ProfessionalModel.query.filter(ProfessionalModel.deleted_at == None).all()
+            prof_by_tuition = {}
+            for prof in all_professionals:
+                if prof.tuition:
+                    key = prof.tuition.replace(' ', '').replace('.', '')
+                    if key not in prof_by_tuition:
+                        prof_by_tuition[key] = prof
+
+            # Cargar todos los estados de cuota existentes en memoria para lookup O(1)
+            all_existing_statuses = LawyerMembershipStatusModel.query.all()
+            statuses_by_tuition = {s.tuition_normalized: s for s in all_existing_statuses}
+
             for offset, row in enumerate(data_rows):
                 row_number = header_idx + offset + 2
                 if not any(str(cell).strip() for cell in row):
@@ -158,9 +171,7 @@ class MembershipSyncService:
                     reference_date=self.reference_date,
                 )
 
-                existing = LawyerMembershipStatusModel.query.filter_by(
-                    tuition_normalized=tuition_norm
-                ).first()
+                existing = statuses_by_tuition.get(tuition_norm)
 
                 if existing and existing.status != parsed['status']:
                     report['status_changes'].append({
@@ -209,7 +220,13 @@ class MembershipSyncService:
                 status_record.last_import_uuid = import_record.uuid
                 status_record.source_row_number = row_number
                 status_record.synced_at = datetime.utcnow()
-                link_membership_status_uuids(status_record, tuition_norm)
+                
+                # Inlined link_membership_status_uuids to use memory lookup
+                professional = prof_by_tuition.get(tuition_norm)
+                if professional:
+                    status_record.uuid_professional = professional.uuid
+                    status_record.uuid_user = professional.uuid_user
+
                 raw_row.membership_status_uuid = status_record.uuid
 
                 db.session.add(status_record)
@@ -263,6 +280,20 @@ class MembershipSyncService:
             return 0
 
         statuses = LawyerMembershipStatusModel.query.filter_by(last_import_uuid=import_uuid).all()
+        
+        # Pre-cargar usuarios activos
+        all_users = UserModel.query.filter_by(deleted_at=None).all()
+        users_by_email = {u.email.lower(): u for u in all_users if u.email}
+
+        # Pre-cargar profesionales activos
+        all_professionals = ProfessionalModel.query.filter(ProfessionalModel.deleted_at == None).all()
+        prof_by_tuition = {}
+        for p in all_professionals:
+            if p.tuition:
+                key = p.tuition.replace(' ', '').replace('.', '')
+                if key not in prof_by_tuition:
+                    prof_by_tuition[key] = p
+
         provisioned = 0
 
         for status_record in statuses:
@@ -274,9 +305,10 @@ class MembershipSyncService:
                 filter(None, [status_record.first_name, status_record.last_name])
             ).strip() or f'Matrícula {tuition}'
 
-            user = UserModel.query.filter_by(email=tuition, deleted_at=None).first()
-            if not user:
-                user = UserModel.query.filter_by(email=status_record.tuition_display, deleted_at=None).first()
+            # Buscar usuario por email (matrícula normalizada o formato display)
+            user = users_by_email.get(tuition.lower())
+            if not user and status_record.tuition_display:
+                user = users_by_email.get(status_record.tuition_display.lower())
 
             if not user:
                 user = UserModel()
@@ -287,13 +319,14 @@ class MembershipSyncService:
                 user.must_change_password = True
                 user.profiles = [lawyer_profile]
                 db.session.add(user)
+                users_by_email[tuition.lower()] = user
                 provisioned += 1
             elif lawyer_profile not in user.profiles:
                 user.profiles.append(lawyer_profile)
 
             status_record.uuid_user = user.uuid
 
-            professional = find_professional_by_tuition(tuition)
+            professional = prof_by_tuition.get(tuition)
 
             if professional:
                 if not professional.uuid_user:
