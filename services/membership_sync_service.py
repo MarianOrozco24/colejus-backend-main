@@ -133,6 +133,8 @@ class MembershipSyncService:
             all_existing_statuses = LawyerMembershipStatusModel.query.all()
             statuses_by_tuition = {s.tuition_normalized: s for s in all_existing_statuses}
 
+            processed_tuitions_in_run = set()
+
             for offset, row in enumerate(data_rows):
                 row_number = header_idx + offset + 2
                 if not any(str(cell).strip() for cell in row):
@@ -165,6 +167,19 @@ class MembershipSyncService:
                         'reason': 'invalid_or_missing_matricula',
                     })
                     continue
+
+                if tuition_norm in processed_tuitions_in_run:
+                    raw_row.parse_status = 'skipped'
+                    raw_row.parse_notes = 'duplicate_matricula'
+                    skipped_count += 1
+                    report['skipped_rows'].append({
+                        'row_number': row_number,
+                        'raw_mat': raw_row.col_mat,
+                        'reason': f'Matrícula duplicada ({tuition_norm}): ya procesada en otra fila',
+                    })
+                    continue
+
+                processed_tuitions_in_run.add(tuition_norm)
 
                 parsed = parse_quota_adeudada(
                     raw_row.col_cuota_adeudada,
