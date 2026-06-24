@@ -15,6 +15,7 @@ class UserModel(db.Model):
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
     updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
     deleted_at = db.Column(db.DateTime, nullable=True)
+    must_change_password = db.Column(db.Boolean, nullable=False, default=False)
     profiles = db.relationship('ProfileModel', secondary='profiles_users', lazy='subquery', backref=backref('users', lazy=True))
     
     def __repr__(self):
@@ -53,6 +54,7 @@ class UserModel(db.Model):
             'email': self.email,
             'auth_token': self.auth_token,
             'profiles': profiles,
+            'must_change_password': bool(self.must_change_password),
         }
 
         

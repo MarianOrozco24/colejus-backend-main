@@ -17,6 +17,7 @@ from .dev import dev_bp
 from .booking import booking_bp
 from .lawyer_payments import lawyer_payments_bp
 from .rooms import rooms_bp
+from .membership_status import membership_bp
 
 def init_app(app: Flask):
     app.register_blueprint(users_bp, url_prefix='/api')
@@ -36,3 +37,4 @@ def init_app(app: Flask):
     app.register_blueprint(booking_bp, url_prefix='/api')
     app.register_blueprint(lawyer_payments_bp, url_prefix='/api')
     app.register_blueprint(rooms_bp, url_prefix='/api')
+    app.register_blueprint(membership_bp, url_prefix='/api')

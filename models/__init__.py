@@ -21,6 +21,9 @@ from .lawyer_payment import LawyerPaymentModel
 from .membership_fee import MembershipFeeModel
 from .room import RoomModel
 from .config import SystemConfigModel
+from .membership_sheet_import import MembershipSheetImportModel
+from .membership_sheet_row_raw import MembershipSheetRowRawModel
+from .lawyer_membership_status import LawyerMembershipStatusModel
 
 __all__ = [
     'UserModel',
@@ -43,5 +46,8 @@ __all__ = [
     "LawyerPaymentModel",
     "MembershipFeeModel",
     "RoomModel",
-    "SystemConfigModel"
+    "SystemConfigModel",
+    "MembershipSheetImportModel",
+    "MembershipSheetRowRawModel",
+    "LawyerMembershipStatusModel",
 ]
