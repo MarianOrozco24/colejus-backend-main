@@ -11,7 +11,6 @@ booking_bp = Blueprint('booking', __name__)
 
 @booking_bp.route('/bookings/occupied', methods=['GET'])
 @token_required
-@access_required('book_rooms')
 def get_occupied_slots():
     room_id = request.args.get('room_id')
     date_str = request.args.get('date')
@@ -27,14 +26,30 @@ def get_occupied_slots():
         return jsonify({'error': 'room_id and date parameters are required.'}), 400
 
     try:
-        booking_date = datetime.strptime(date_str, "%Y-%m-%d").date()
-    except ValueError:
-        return jsonify({'error': 'Invalid date format. Use YYYY-MM-DD.'}), 400
-
-    try:
         room = RoomModel.query.filter_by(id=room_id, deleted_at=None).first()
         if not room:
             return jsonify({'error': 'Room not found.'}), 404
+
+        # Dynamic permission check based on room type
+        required_permission = 'book_rooms' if room.room_type == 'coworking' else 'book_meeting_rooms'
+        has_access = False
+        for profile in request.user.profiles:
+            if profile.name.lower() == 'dev':
+                has_access = True
+                break
+            for access in profile.accesses:
+                if access.name == required_permission:
+                    has_access = True
+                    break
+            if has_access:
+                break
+        if not has_access:
+            return jsonify({'message': 'Access denied'}), 403
+
+        try:
+            booking_date = datetime.strptime(date_str, "%Y-%m-%d").date()
+        except ValueError:
+            return jsonify({'error': 'Invalid date format. Use YYYY-MM-DD.'}), 400
 
         bookings = BookingModel.query.filter_by(room_id=room_id, booking_date=booking_date).all()
         
@@ -111,7 +126,6 @@ def is_lawyer_unpaid(user):
 
 @booking_bp.route('/bookings', methods=['POST'])
 @token_required
-@access_required('book_rooms')
 def create_booking():
     data = request.json
     if not data:
@@ -123,6 +137,26 @@ def create_booking():
         return jsonify({'error': f'Missing fields: {", ".join(missing_fields)}'}), 400
 
     room_id = data['room_id']
+
+    room = RoomModel.query.filter_by(id=room_id, deleted_at=None).first()
+    if not room:
+        return jsonify({'error': 'Room not found.'}), 404
+
+    # Dynamic permission check based on room type
+    required_permission = 'book_rooms' if room.room_type == 'coworking' else 'book_meeting_rooms'
+    has_access = False
+    for profile in request.user.profiles:
+        if profile.name.lower() == 'dev':
+            has_access = True
+            break
+        for access in profile.accesses:
+            if access.name == required_permission:
+                has_access = True
+                break
+        if has_access:
+            break
+    if not has_access:
+        return jsonify({'message': 'Access denied'}), 403
     date_str = data['booking_date']
     time_slots = data['time_slots']
     user_name = data['user_name']
@@ -150,9 +184,20 @@ def create_booking():
     except ValueError:
         return jsonify({'error': 'Invalid date format. Use YYYY-MM-DD.'}), 400
 
-    # Validar pago de membresía si el switch de validación no está desactivado
-    if not data.get('bypass_validation', False) and is_lawyer_unpaid(request.user):
-        return jsonify({'error': 'No se pueden realizar reservas de sala. El abogado tiene cuotas de membresía pendientes.'}), 402
+    # Validar pago de membresía según tipo de sala
+    if not data.get('bypass_validation', False):
+        if room.room_type == 'meeting':
+            from services.membership_sync_service import can_user_book_meeting_room
+            if not can_user_book_meeting_room(request.user):
+                return jsonify({
+                    'error': (
+                        'Para reservar la sala de reuniones debe estar al día con la cuota del colegio. '
+                        'Acérquese a secretaría para regularizar su situación.'
+                    ),
+                    'code': 'MEMBERSHIP_DEBT',
+                }), 402
+        elif room.room_type == 'coworking' and is_lawyer_unpaid(request.user):
+            return jsonify({'error': 'No se pueden realizar reservas de sala. El abogado tiene cuotas de membresía pendientes.'}), 402
 
     # IDEMPOTENCIA: Verificar si ya existen reservas asociadas a esta key de cliente
     try:
@@ -292,7 +337,6 @@ def create_booking():
 
 @booking_bp.route('/bookings/stats', methods=['GET'])
 @token_required
-@access_required('view_rooms')
 def get_booking_stats():
     room_id = request.args.get('room_id')
     start_date_str = request.args.get('start_date')
@@ -324,6 +368,22 @@ def get_booking_stats():
         room = RoomModel.query.filter_by(id=room_id_int, deleted_at=None).first()
         if not room:
             return jsonify({'error': 'Room not found.'}), 404
+
+        # Dynamic permission check based on room type
+        required_permission = 'view_rooms' if room.room_type == 'coworking' else 'view_meeting_rooms'
+        has_access = False
+        for profile in request.user.profiles:
+            if profile.name.lower() == 'dev':
+                has_access = True
+                break
+            for access in profile.accesses:
+                if access.name == required_permission:
+                    has_access = True
+                    break
+            if has_access:
+                break
+        if not has_access:
+            return jsonify({'message': 'Access denied'}), 403
 
         # 2. Parse Date Range
         today = datetime.utcnow().date()
@@ -431,8 +491,22 @@ def get_booking_stats():
 
 @booking_bp.route('/bookings/lawyers', methods=['GET'])
 @token_required
-@access_required('book_rooms')
 def get_lawyers_list():
+    # Allow access if user can book coworking or meeting rooms
+    has_access = False
+    for profile in request.user.profiles:
+        if profile.name.lower() == 'dev':
+            has_access = True
+            break
+        for access in profile.accesses:
+            if access.name in ['book_rooms', 'book_meeting_rooms']:
+                has_access = True
+                break
+        if has_access:
+            break
+    if not has_access:
+        return jsonify({'message': 'Access denied'}), 403
+
     search_query = request.args.get('name', '').strip()
     try:
         # Join users with profiles and filter by name = 'lawyer'
@@ -457,8 +531,22 @@ def get_lawyers_list():
 
 @booking_bp.route('/bookings/my-bookings', methods=['GET'])
 @token_required
-@access_required('book_rooms')
 def get_my_bookings():
+    # Allow access if user can book coworking or meeting rooms
+    has_access = False
+    for profile in request.user.profiles:
+        if profile.name.lower() == 'dev':
+            has_access = True
+            break
+        for access in profile.accesses:
+            if access.name in ['book_rooms', 'book_meeting_rooms']:
+                has_access = True
+                break
+        if has_access:
+            break
+    if not has_access:
+        return jsonify({'message': 'Access denied'}), 403
+
     date_str = request.args.get('date')
     user_email = request.user.email
     
@@ -497,8 +585,22 @@ def get_my_bookings():
 
 @booking_bp.route('/bookings/<int:booking_id>', methods=['DELETE'])
 @token_required
-@access_required('book_rooms')
 def delete_booking(booking_id):
+    # Allow access if user can book coworking or meeting rooms
+    has_access = False
+    for profile in request.user.profiles:
+        if profile.name.lower() == 'dev':
+            has_access = True
+            break
+        for access in profile.accesses:
+            if access.name in ['book_rooms', 'book_meeting_rooms']:
+                has_access = True
+                break
+        if has_access:
+            break
+    if not has_access:
+        return jsonify({'message': 'Access denied'}), 403
+
     user_email = request.user.email
     user_uuid = request.user.uuid if hasattr(request.user, 'uuid') else None
     

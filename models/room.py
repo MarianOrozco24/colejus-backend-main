@@ -13,6 +13,7 @@ class RoomModel(db.Model):
     description = db.Column(db.Text, nullable=True)
     amenities = db.Column(db.Text, nullable=True)  # Almacenado como JSON String
     is_active = db.Column(db.Boolean, default=True, nullable=False)
+    room_type = db.Column(db.String(50), nullable=False, default='coworking')
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
     updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
     deleted_at = db.Column(db.DateTime, nullable=True)
@@ -41,6 +42,7 @@ class RoomModel(db.Model):
             'description': self.description,
             'amenities': self.get_amenities(),
             'is_active': self.is_active,
+            'room_type': self.room_type,
             'created_at': self.created_at.isoformat() if self.created_at else None,
             'updated_at': self.updated_at.isoformat() if self.updated_at else None,
             'deleted_at': self.deleted_at.isoformat() if self.deleted_at else None
