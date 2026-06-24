@@ -188,3 +188,6 @@ logs/
 
 # Uploads
 uploads/
+
+*.log
+*.txt
