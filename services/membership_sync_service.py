@@ -311,6 +311,7 @@ class MembershipSyncService:
 
         provisioned = 0
 
+        # First pass: create all missing users and add lawyer profiles
         for status_record in statuses:
             if status_record.status == MEMBERSHIP_STATUS_AMBIGUOUS:
                 continue
@@ -339,18 +340,28 @@ class MembershipSyncService:
             elif lawyer_profile not in user.profiles:
                 user.profiles.append(lawyer_profile)
 
-            status_record.uuid_user = user.uuid
+        # Flush to database so all user uuids are created and exist in the users table
+        db.session.flush()
 
-            professional = prof_by_tuition.get(tuition)
+        # Second pass: link status records and professionals to the users
+        for status_record in statuses:
+            if status_record.status == MEMBERSHIP_STATUS_AMBIGUOUS:
+                continue
 
-            if professional:
-                if not professional.uuid_user:
-                    professional.uuid_user = user.uuid
-                status_record.uuid_professional = professional.uuid
-                db.session.add(professional)
+            tuition = status_record.tuition_normalized
+            user = users_by_email.get(tuition.lower())
+            if not user and status_record.tuition_display:
+                user = users_by_email.get(status_record.tuition_display.lower())
 
-            db.session.add(status_record)
-            db.session.add(user)
+            if user:
+                status_record.uuid_user = user.uuid
+                professional = prof_by_tuition.get(tuition)
+                if professional:
+                    if not professional.uuid_user:
+                        professional.uuid_user = user.uuid
+                    status_record.uuid_professional = professional.uuid
+                    db.session.add(professional)
+                db.session.add(status_record)
 
         db.session.commit()
         return provisioned
