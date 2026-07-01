@@ -73,16 +73,16 @@ def create_profile():
 
 @profile_bp.route('/profiles/get', methods=['POST'])
 @jwt_required()
-@token_required 
+@token_required
 @access_required('view_profiles')
 def get_all_profiles():
     name = request.json.get('name')
-    
+
     if name:
         profiles = ProfileModel.query.filter(ProfileModel.deleted_at == None, ProfileModel.name.ilike(f'%{name}%')).all()
     else:
         profiles = ProfileModel.query.filter(ProfileModel.deleted_at == None).all()
-    
+
     profiles_data = [profile.to_json() for profile in profiles]
     return jsonify(profiles_data), 200
 

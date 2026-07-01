@@ -171,13 +171,57 @@ def view_log(filename):
     except Exception as e:
         return jsonify({'error': str(e)}), 500
 
-@dev_bp.route('/dev/users', methods=['GET'])
+@dev_bp.route('/dev/users', methods=['GET', 'POST'])
 @jwt_required()
 @token_required
 @access_required('view_users')
 def list_users():
-    users = UserModel.query.options(subqueryload(UserModel.profiles).subqueryload(ProfileModel.accesses)).all()
-    return jsonify([user.to_json() for user in users])
+    data = request.json or request.args or {}
+    name = data.get('name', '')
+    page = data.get('page', 1)
+    per_page = data.get('per_page', 10)
+
+    try:
+        page = max(1, int(page))
+        per_page = min(50, max(1, int(per_page)))
+    except (ValueError, TypeError):
+        page, per_page = 1, 10
+
+    query = UserModel.query.options(subqueryload(UserModel.profiles).subqueryload(ProfileModel.accesses))
+    if name:
+        query = query.filter(UserModel.name.ilike(f'%{name}%') | UserModel.email.ilike(f'%{name}%'))
+
+    total_count = query.count()
+
+    if total_count <= 10:
+        users = query.all()
+        users_data = [user.to_json() for user in users]
+        return jsonify({
+            'data': users_data,
+            'pagination': {
+                'page': 1,
+                'per_page': per_page,
+                'total': total_count,
+                'total_pages': 1,
+                'has_prev': False,
+                'has_next': False
+            }
+        }), 200
+
+    paginated = query.paginate(page=page, per_page=per_page, error_out=False)
+    users_data = [user.to_json() for user in paginated.items]
+
+    return jsonify({
+        'data': users_data,
+        'pagination': {
+            'page': page,
+            'per_page': per_page,
+            'total': paginated.total,
+            'total_pages': paginated.pages,
+            'has_prev': paginated.has_prev,
+            'has_next': paginated.has_next
+        }
+    }), 200
 
 @dev_bp.route('/dev/users/block', methods=['POST'])
 @jwt_required()
