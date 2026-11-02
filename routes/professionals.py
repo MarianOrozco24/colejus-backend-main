@@ -190,9 +190,14 @@ def update_professional(uuid):
             professional.name = data['name']
         if 'title' in data:
             professional.title = data['title']
+        if 'procurador_professions' in data:
+            professions = data['procurador_professions']
+            professional.procurador_professions = json.dumps(professions) if professions else None
+        if professional.title != 'Procurador':
+            professional.procurador_professions = None
         if 'tuition' in data:
             professional.tuition = data['tuition']
-        if 'email' in data:
+        if data.get('email'):
             professional.email = data['email']
         if 'location' in data:
             professional.location = data['location']
